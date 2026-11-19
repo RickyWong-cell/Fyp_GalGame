@@ -1,0 +1,8 @@
+# 禁止透過瀏覽器直接存取 AI 模組原始碼與伺服器端設定
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>

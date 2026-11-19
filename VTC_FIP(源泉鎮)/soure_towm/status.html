@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>《源泉鎮 Source Town》環境健康檢查</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+</head>
+<body class="min-h-screen bg-[#080b11] text-slate-100 flex items-center justify-center p-4 font-mono text-xs">
+  <div class="w-full max-w-lg rounded-2xl bg-slate-900 border border-slate-700 p-6 space-y-4 shadow-2xl">
+    <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+      <div>
+        <h1 class="text-base font-bold text-white">🩺 Source Town V2.6 環境健康檢查</h1>
+        <p class="text-slate-400 mt-0.5">檢查 Apache PHP、MySQL (127.0.0.1) 與資料表就緒狀態</p>
+      </div>
+      <button id="btnRefreshStatus" class="px-3 py-1.5 rounded-xl bg-sky-700 hover:bg-sky-600 text-white font-bold">↻ 重新檢測</button>
+    </div>
+
+    <div id="statusGrid" class="space-y-2.5">
+      <div class="p-3 rounded-xl bg-slate-950 border border-slate-800 text-slate-300">正在連線至 api/status.php ...</div>
+    </div>
+
+    <div class="flex items-center justify-between pt-2 border-t border-slate-800 text-slate-400">
+      <a href="index.html" class="text-orange-300 hover:underline">← 返回《源泉鎮》主程式</a>
+      <span id="checkedAtLabel">--</span>
+    </div>
+  </div>
+
+  <script>
+    async function runCheck() {
+      const grid = document.getElementById('statusGrid');
+      const timeEl = document.getElementById('checkedAtLabel');
+      const row = (label, ok, detail) => `
+        <div class="p-3 rounded-xl bg-slate-950 border ${ok ? 'border-emerald-700/60' : 'border-rose-700/60'} flex items-center justify-between gap-2">
+          <span class="text-slate-200 font-bold">${label}</span>
+          <span class="${ok ? 'text-emerald-300' : 'text-rose-300'}">${ok ? '✓' : '✕'} ${detail}</span>
+        </div>`;
+
+      try {
+        const resp = await fetch('api/status.php', { cache: 'no-store' });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+        grid.innerHTML = [
+          row('整體狀態 (status)', data.status === 'ok', data.status),
+          row('PHP API 服務', !!data.php_ok, data.php_ok ? '正常回應' : '異常'),
+          row('pdo_mysql 擴充', !!data.mysql_extension_loaded, data.mysql_extension_loaded ? '已載入' : '未載入'),
+          row('MySQL 連線 (127.0.0.1)', !!data.mysql_connection_ok, data.mysql_connection_ok ? '連線成功' : '連線失敗'),
+          row('source_town 資料表', !!data.mysql_schema_ready, data.mysql_schema_ready ? 'Schema 已就緒' : '尚未匯入 SQL'),
+          row('目前儲存模式', data.storage_mode === 'mysql_database', data.storage_mode || '未知')
+        ].join('');
+        if (data.diagnostic) {
+          grid.innerHTML += `<div class="p-3 rounded-xl bg-amber-950/50 border border-amber-600/60 text-amber-200">診斷訊息：${data.diagnostic}</div>`;
+        }
+        timeEl.textContent = '檢查時間：' + new Date().toLocaleTimeString('zh-HK', { hour12: false });
+      } catch (err) {
+        grid.innerHTML = row('API 請求失敗', false, err.message + '（請確認已透過 http://localhost/ 開啟且 Apache 已啟動）');
+        timeEl.textContent = '檢查失敗';
+      }
+    }
+    document.getElementById('btnRefreshStatus').addEventListener('click', runCheck);
+    runCheck();
+  </script>
+</body>
+</html>

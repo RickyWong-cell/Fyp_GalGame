@@ -1,0 +1,272 @@
+:root {
+  --editor-font-size: 14px;
+  --editor-line-height: 22px;
+  --editor-pad: 12px;
+  --vvh: 100dvh;
+}
+
+html, body {
+  background-color: #080b11;
+  color: #f8fafc;
+  height: 100%;
+  height: var(--vvh, 100dvh);
+  min-height: 0;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  overscroll-behavior: none;
+}
+
+/* 虛擬鍵盤開啟時緊湊化手機版輔助工具列，確保編輯與執行按鈕不被遮擋 */
+body.keyboard-open #mobileTouchToolbar {
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+
+body.keyboard-open #mobileTouchToolbar button {
+  min-height: 32px;
+}
+
+.sky-gradient {
+  background: linear-gradient(180deg, #080c18 0%, #161b33 35%, #34160b 70%, #5c200b 100%);
+}
+
+.crt-effect::before {
+  content: " ";
+  display: block;
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.16) 50%),
+              linear-gradient(90deg, rgba(255, 0, 0, 0.012), rgba(0, 255, 0, 0.008), rgba(0, 0, 255, 0.012));
+  z-index: 35;
+  background-size: 100% 3px, 6px 100%;
+  pointer-events: none;
+}
+
+/* Clean Display 完整移除多餘陰影、發光、濾鏡與裝飾動畫 */
+.clean-display .shadow-sm,
+.clean-display .shadow,
+.clean-display .shadow-md,
+.clean-display .shadow-lg,
+.clean-display .shadow-xl,
+.clean-display .shadow-2xl {
+  box-shadow: none !important;
+}
+
+.clean-display #townMapSvg [filter],
+.clean-display .map-node {
+  filter: none !important;
+}
+
+.clean-display .map-landmark-text {
+  opacity: 0.78 !important;
+}
+
+.clean-display .conduit-fault,
+.clean-display .conduit-fixed,
+.clean-display .beacon-ring,
+.clean-display .wave-anim,
+.clean-display .sector-fade,
+.clean-display .map-node-enter,
+.clean-display .node-just-fixed,
+.clean-display .save-flash {
+  animation: none !important;
+}
+
+.clean-display .map-node:hover .map-node-inner {
+  transform: none !important;
+}
+
+.sector-fade {
+  animation: fadeSlideIn 0.2s ease-out;
+}
+
+@keyframes fadeSlideIn {
+  from { opacity: 0.6; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 雙層程式碼編輯器與語法高亮精準對齊 */
+#codeHighlightPre, #codeEditorInput {
+  font-family: 'JetBrains Mono', Consolas, monospace !important;
+  font-size: var(--editor-font-size) !important;
+  line-height: var(--editor-line-height) !important;
+  padding: var(--editor-pad) !important;
+  tab-size: 4 !important;
+  -moz-tab-size: 4 !important;
+  letter-spacing: 0 !important;
+  box-sizing: border-box !important;
+  border: 0 !important;
+  margin: 0 !important;
+}
+
+#codeHighlightPre code {
+  font-family: inherit !important;
+  font-size: inherit !important;
+  line-height: inherit !important;
+}
+
+#wsLineGutter {
+  font-family: 'JetBrains Mono', Consolas, monospace !important;
+  font-size: var(--editor-font-size) !important;
+  line-height: var(--editor-line-height) !important;
+  padding-top: var(--editor-pad) !important;
+  padding-bottom: var(--editor-pad) !important;
+}
+
+/* Prism.js 自訂語法配色 */
+.token.keyword { color: #f472b6 !important; font-weight: 600; }
+.token.string { color: #34d399 !important; }
+.token.comment { color: #94a3b8 !important; font-style: italic; }
+.token.function { color: #38bdf8 !important; }
+.token.number { color: #fbbf24 !important; }
+.token.operator { color: #f87171 !important; }
+.token.class-name { color: #a78bfa !important; font-weight: 600; }
+
+/* 自訂捲軸 */
+.custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: #0d1117; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #f97316; }
+
+/* 鍵盤無障礙焦點環（輸入框改為單層貼合邊框，避免雙重橘框） */
+button:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid #fb923c;
+  outline-offset: 2px;
+}
+
+input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid #fb923c;
+  outline-offset: 0px;
+}
+
+/* Reduce Motion 完整停止動畫（包含無限循環動畫），不依賴 0.001ms */
+.reduce-motion *, .reduce-motion *::before, .reduce-motion *::after {
+  animation: none !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+.clean-display *, .clean-display *::before, .clean-display *::after {
+  transition-duration: 0.001ms !important;
+}
+
+@keyframes greenLightFlash {
+  0% { filter: drop-shadow(0 0 0 rgba(52, 211, 153, 0)); }
+  35% { filter: drop-shadow(0 0 18px rgba(52, 211, 153, 0.95)); }
+  100% { filter: drop-shadow(0 0 0 rgba(52, 211, 153, 0)); }
+}
+
+.node-just-fixed {
+  animation: greenLightFlash 1.2s ease-out 2;
+}
+
+.acc-flash-ring {
+  box-shadow: 0 0 0 2px #fb923c;
+  transition: box-shadow 0.3s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.ws-fullscreen {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 45 !important;
+  width: 100% !important;
+  height: var(--vvh, 100dvh) !important;
+  min-height: 0 !important;
+}
+
+@media (min-width: 1024px) {
+  #wsVnPanel {
+    min-width: 240px;
+  }
+  #wsRightArea {
+    min-width: 320px;
+  }
+}
+
+.panel-smooth {
+  transition: flex-basis 0.2s ease, opacity 0.2s ease;
+}
+
+@keyframes savePulse {
+  0% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.7); }
+  70% { box-shadow: 0 0 0 6px rgba(52, 211, 153, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
+}
+
+.save-flash {
+  animation: savePulse 0.6s ease-out;
+}
+
+/* 城市地圖動畫與懸停交互 */
+@keyframes flowDash {
+  to { stroke-dashoffset: -36; }
+}
+
+@keyframes pulseBeacon {
+  0% { transform: scale(0.85); opacity: 0.9; }
+  75% { transform: scale(1.75); opacity: 0; }
+  100% { transform: scale(1.75); opacity: 0; }
+}
+
+@keyframes waveDrift {
+  0%, 100% { transform: translateX(0px); opacity: 0.45; }
+  50% { transform: translateX(6px); opacity: 0.85; }
+}
+
+.conduit-fault {
+  stroke-dasharray: 8 6;
+  animation: flowDash 1.1s linear infinite;
+}
+
+.conduit-fixed {
+  stroke-dasharray: 14 4;
+  animation: flowDash 2.2s linear infinite;
+}
+
+.beacon-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pulseBeacon 2.2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+.wave-anim {
+  animation: waveDrift 4s ease-in-out infinite;
+}
+
+.map-landmark-text {
+  opacity: 0.45;
+  transition: opacity 0.25s ease;
+}
+
+#townMapSvg:hover .map-landmark-text {
+  opacity: 0.85;
+}
+
+@keyframes nodePopIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.map-node-inner {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), filter 0.22s ease;
+}
+
+.map-node-enter {
+  animation: nodePopIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+.map-node:hover .map-node-inner {
+  transform: translateY(-4px) scale(1.02);
+  filter: brightness(1.14);
+}
