@@ -10,14 +10,14 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
 
 try {
     $pdo = getDbConnection();
-    $sess = getActiveSession($pdo);
+    $sess = requireAuthenticatedCsrf($pdo);
+    $studentUuid = (string)$sess['subject_id'];
     $body = readJsonInput();
-    $studentUuid = $sess ? $sess['subject_id'] : trim((string)($body['student_uuid'] ?? ''));
     $slotIndex = isset($body['slot_index']) ? (int)$body['slot_index'] : -1;
     $action = (string)($body['action'] ?? 'save');
 
-    if ($studentUuid === '' || $slotIndex < 0 || $slotIndex > 3) {
-        sendJson(['ok' => false, 'error' => 'INVALID_SLOT_OR_SESSION'], 400);
+    if ($slotIndex < 0 || $slotIndex > 3) {
+        sendJson(['ok' => false, 'error' => 'INVALID_SLOT_INDEX'], 400);
     }
 
     if ($action === 'delete') {

@@ -452,7 +452,7 @@ INSERT INTO `levels` (`level_id`, `level_code`, `sector_id`, `title`, `metaphor_
 1, 1, 7, 2),
 
 (8, 'industrial_2', 'industrial', '第 2 關：渦輪緩衝區安全釋放', '動態記憶體釋放 · 懸空指標風險',
-'void release_buffer(int* buf) {\n    delete[] buf;\n    // 目標：釋放後將指標設為 nullptr 避免重複釋放\n}',
+'void release_buffer(int*& buf) {\n    delete[] buf;\n    // 目標：以指標參考 (int*&) 釋放動態陣列後，將指標設為 nullptr 避免呼叫端懸空指標\n}',
 '{"file":"buffer_guard.cpp","required_token":"delete[]","pass_pattern":"nullptr","expected_stdout":"SAFE_RELEASE"}',
 1, 1, 8, 2);
 

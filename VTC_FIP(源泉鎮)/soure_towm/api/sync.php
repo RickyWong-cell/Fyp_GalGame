@@ -10,14 +10,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
 
 try {
     $pdo = getDbConnection();
+    $sess = requireAuthenticatedCsrf($pdo);
+    $studentUuid = (string)$sess['subject_id'];
     $body = readJsonInput();
-    $sess = getActiveSession($pdo);
-    $studentUuid = $sess ? $sess['subject_id'] : trim((string)($body['student_uuid'] ?? ''));
     $action = (string)($body['action'] ?? 'submit_result');
-
-    if ($studentUuid === '') {
-        sendJson(['ok' => false, 'error' => 'MISSING_STUDENT_UUID'], 400);
-    }
 
     if ($action === 'mark_dialogue_read') {
         $sectorId = trim((string)($body['sector_id'] ?? ''));
@@ -62,8 +58,7 @@ try {
     $execStatus = (string)($body['exec_status'] ?? 'SYSTEM_ERROR');
     $latencyMs = max(0, (int)($body['latency_ms'] ?? 0));
     $hintDepth = max(0, (int)($body['hint_depth_used'] ?? 0));
-    $affScore = max(0, min(100, (int)($body['affection_score'] ?? 0)));
-    $affTier = ($affScore >= 70) ? 3 : (($affScore >= 35) ? 2 : 1);
+    // P0-02: 好感度與 Tier 完全由後端依驗證結果計算，忽略前端傳入的分數
     $isSuccess = ($execStatus === 'PASS' || $execStatus === 'CONCEPT_PASS');
     $evalMode = in_array($sectorId, ['farm', 'market'], true) ? 'runtime' : 'concept_simulation';
 
@@ -117,11 +112,18 @@ try {
         $submittedCode
     ]);
 
-    $prevAffStmt = $pdo->prepare('SELECT current_score, current_tier FROM student_affection WHERE student_uuid = ? AND sector_id = ? LIMIT 1');
+    $prevAffStmt = $pdo->prepare('SELECT current_score, current_tier FROM student_affection WHERE student_uuid = ? AND sector_id = ? LIMIT 1 FOR UPDATE');
     $prevAffStmt->execute([$studentUuid, $sectorId]);
     $prevAffRow = $prevAffStmt->fetch();
     $prevScoreInt = $prevAffRow ? (int)$prevAffRow['current_score'] : 0;
     $prevTierInt = $prevAffRow ? (int)$prevAffRow['current_tier'] : 1;
+
+    $affDelta = 0;
+    if ($isSuccess) {
+        $affDelta = ($isFirstPass === 1) ? 15 : 2;
+    }
+    $affScore = max(0, min(100, $prevScoreInt + $affDelta));
+    $affTier = ($affScore >= 70) ? 3 : (($affScore >= 35) ? 2 : 1);
 
     $affStmt = $pdo->prepare(
         'INSERT INTO student_affection (student_uuid, sector_id, current_score, current_tier)
@@ -194,6 +196,8 @@ try {
     sendJson([
         'ok' => true,
         'storage' => 'mysql_database',
+        'affection_score' => $affScore,
+        'affection_tier' => $affTier,
         'newly_unlocked_achievements' => $newlyUnlocked,
     ]);
 } catch (Throwable $e) {

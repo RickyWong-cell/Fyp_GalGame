@@ -98,3 +98,43 @@ function clearSessionCookie(): void {
         'samesite' => 'Lax',
     ]);
 }
+
+function assertSameOriginRequest(): void {
+    $fetchSite = strtolower(trim((string)($_SERVER['HTTP_SEC_FETCH_SITE'] ?? '')));
+    if ($fetchSite !== '' && !in_array($fetchSite, ['same-origin', 'none'], true)) {
+        sendJson(['ok' => false, 'error' => 'ORIGIN_FORBIDDEN', 'msg' => '跨站請求已被拒絕 (Fetch Metadata)'], 403);
+    }
+    $origin = trim((string)($_SERVER['HTTP_ORIGIN'] ?? ''));
+    $referer = trim((string)($_SERVER['HTTP_REFERER'] ?? ''));
+    $sourceUrl = $origin !== '' ? $origin : $referer;
+    if ($sourceUrl === '') {
+        sendJson(['ok' => false, 'error' => 'ORIGIN_FORBIDDEN', 'msg' => '缺少來源驗證標頭 (Origin/Referer)'], 403);
+    }
+    $originParts = parse_url($sourceUrl);
+    $hostHeader = (string)($_SERVER['HTTP_HOST'] ?? '');
+    $requestScheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $hostParts = parse_url($requestScheme . '://' . $hostHeader);
+    $originHost = strtolower((string)($originParts['host'] ?? ''));
+    $requestHost = strtolower((string)($hostParts['host'] ?? ''));
+    $originPort = (int)($originParts['port'] ?? (($originParts['scheme'] ?? '') === 'https' ? 443 : 80));
+    $requestPort = (int)($hostParts['port'] ?? ($requestScheme === 'https' ? 443 : 80));
+    if ($originHost === '' || $requestHost === '' || $originHost !== $requestHost || $originPort !== $requestPort) {
+        sendJson(['ok' => false, 'error' => 'ORIGIN_FORBIDDEN', 'msg' => '跨站請求已被拒絕'], 403);
+    }
+}
+
+function requireAuthenticatedCsrf(PDO $pdo, ?string $requiredRole = null): array {
+    assertSameOriginRequest();
+    $sess = getActiveSession($pdo);
+    if (!$sess) {
+        sendJson(['ok' => false, 'error' => 'SESSION_REQUIRED', 'msg' => '請先建立有效遊戲 Session'], 401);
+    }
+    if ($requiredRole !== null && ($sess['role'] ?? '') !== $requiredRole) {
+        sendJson(['ok' => false, 'error' => 'UNAUTHORIZED', 'msg' => '權限不足'], 403);
+    }
+    $provided = (string)($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+    if (!verifyCsrfToken($sess, $provided)) {
+        sendJson(['ok' => false, 'error' => 'CSRF_INVALID', 'msg' => 'CSRF 驗證失敗，請重新整理頁面'], 403);
+    }
+    return $sess;
+}

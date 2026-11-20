@@ -61,7 +61,7 @@ const SECTORS = {
     badgeClass: 'bg-rose-950 border-rose-600 text-rose-300',
     location: '水電工業 · 核心地下機房 0 號渦輪', metaphor: '指標位址誤寫 · 水庫壓力過載',
     file: 'dam_pressure_valve.cpp',
-    starter: `// C++ 指標概念驗證關卡 (非實際編譯)\n// 目標：透過解引用運算元 *valve_status 更新狀態為 1\n#include <iostream>\nvoid calibrate_valve(int* valve_status) {\n    valve_status = 1; // 錯誤：直接覆寫了指標位址\n}\nint main() {\n    int current_state = 0;\n    calibrate_valve(&current_state);\n    std::cout << "VALVE_STATE: " << current_state << std::endl;\n    return 0;\n}`,
+    starter: `// C++ 指標概念驗證關卡 (非實際編譯)\n// 目標：透過解引用運算元 *valve_status 更新狀態為 1\n#include <iostream>\nvoid calibrate_valve(int* valve_status) {\n    valve_status = 1; // 錯誤：型別不符 (int* 不能直接賦值 int) 且未解引用目標記憶體\n}\nint main() {\n    int current_state = 0;\n    calibrate_valve(&current_state);\n    std::cout << "VALVE_STATE: " << current_state << std::endl;\n    return 0;\n}`,
     hints: [
       ['方向提示', 'valve_status 是指向整數的指標，直接賦值會改動位址而非目標數值。'],
       ['關鍵概念', '在指標變數前加上解引用運算元 *，即可修改其指向的記憶體內容。'],
@@ -154,15 +154,15 @@ const BUILTIN_EXTRA_LEVELS = [
     sectorId: 'industrial',
     title: '第 2 關：渦輪緩衝區安全釋放',
     file: 'buffer_guard.cpp',
-    metaphor: '動態記憶體釋放 · 懸空指標風險',
-    starter: 'void release_buffer(int* buf) {\n    delete[] buf;\n    // 目標：釋放後將指標設為 nullptr 避免重複釋放\n}',
+    metaphor: '動態記憶體釋放 · 指標傳址與懸空指標風險',
+    starter: 'void release_buffer(int*& buf) {\n    delete[] buf;\n    // 目標：以指標參考 (int*&) 釋放動態陣列後，將指標設為 nullptr 避免呼叫端懸空指標\n}',
     requiredToken: 'delete[]',
     passPattern: 'nullptr',
     expectedStdout: 'SAFE_RELEASE',
     hints: [
-      ['方向提示', '動態陣列釋放後，指標變數仍指向舊位址（懸空指標），容易造成 Double Free。'],
-      ['關鍵概念', '在 delete[] buf; 之後立即將 buf 設為 nullptr。'],
-      ['結構提示', '於第 3 行補上 buf = nullptr;。']
+      ['方向提示', '若僅傳值指標 (int* buf)，在函式內將 buf 設為 nullptr 只會清除區域複本，呼叫端的指標仍為懸空指標！'],
+      ['關鍵概念', '參數須使用指標參考 (int*& buf)，並在 delete[] buf; 後立即執行 buf = nullptr;。'],
+      ['結構提示', '確認函式簽章保留 int*& buf，並於第 3 行補上 buf = nullptr;。']
     ],
     isBuiltin: true,
     isActive: true
@@ -372,12 +372,189 @@ function flushDraftNow() {
   }
 }
 
+
+function buildAuthJsonHeaders() {
+  const headers = { 'Content-Type': 'application/json' };
+  if (db.session && db.session.csrfToken) {
+    headers['X-CSRF-Token'] = db.session.csrfToken;
+  }
+  return headers;
+}
+
+function stripCodeComments(code, mode = 'cstyle') {
+  const src = String(code || '');
+  let out = '';
+  let i = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let inBlock = false;
+  const isPy = mode === 'farm' || mode === 'py' || mode === 'python';
+  while (i < src.length) {
+    const ch = src[i];
+    const next = src[i + 1] || '';
+    if (inBlock) {
+      if (ch === '*' && next === '/') {
+        inBlock = false;
+        i += 2;
+        continue;
+      }
+      if (ch === '\n') out += '\n';
+      i += 1;
+      continue;
+    }
+    if (inSingle) {
+      out += ch;
+      if (ch === '\\' && i + 1 < src.length) {
+        out += next;
+        i += 2;
+        continue;
+      }
+      if (ch === "'") inSingle = false;
+      i += 1;
+      continue;
+    }
+    if (inDouble) {
+      out += ch;
+      if (ch === '\\' && i + 1 < src.length) {
+        out += next;
+        i += 2;
+        continue;
+      }
+      if (ch === '"') inDouble = false;
+      i += 1;
+      continue;
+    }
+    if (!isPy && ch === '/' && next === '/') {
+      while (i < src.length && src[i] !== '\n') i += 1;
+      continue;
+    }
+    if (!isPy && ch === '/' && next === '*') {
+      inBlock = true;
+      i += 2;
+      continue;
+    }
+    if (isPy && ch === '#') {
+      while (i < src.length && src[i] !== '\n') i += 1;
+      continue;
+    }
+    if (ch === "'") inSingle = true;
+    else if (ch === '"') inDouble = true;
+    out += ch;
+    i += 1;
+  }
+  return out;
+}
+
+function safeEvalPythonMoistureCond(expr, moistureVal) {
+  const src = String(expr || '').trim();
+  if (!src) throw new Error('if 條件式不可為空');
+  // Tokenize strictly: only moisture, numbers, comparison ops, and/or/not, parentheses
+  const tokens = [];
+  let i = 0;
+  while (i < src.length) {
+    if (/\s/.test(src[i])) { i++; continue; }
+    const two = src.slice(i, i + 2);
+    if (two === '<=' || two === '>=' || two === '==' || two === '!=') {
+      tokens.push({ type: 'CMP', val: two });
+      i += 2; continue;
+    }
+    if (src[i] === '<' || src[i] === '>') {
+      tokens.push({ type: 'CMP', val: src[i] });
+      i += 1; continue;
+    }
+    if (src[i] === '(' || src[i] === ')') {
+      tokens.push({ type: 'PAREN', val: src[i] });
+      i += 1; continue;
+    }
+    const numMatch = src.slice(i).match(/^-?\d+(?:\.\d+)?/);
+    if (numMatch && (tokens.length === 0 || ['CMP', 'LOGIC', 'PAREN'].includes(tokens[tokens.length - 1].type) && tokens[tokens.length - 1].val !== ')')) {
+      tokens.push({ type: 'NUM', val: Number(numMatch[0]) });
+      i += numMatch[0].length; continue;
+    }
+    const idMatch = src.slice(i).match(/^[A-Za-z_][A-Za-z0-9_]*/);
+    if (idMatch) {
+      const word = idMatch[0];
+      if (word === 'moisture') tokens.push({ type: 'VAR', val: moistureVal });
+      else if (word === 'and' || word === 'or' || word === 'not') tokens.push({ type: 'LOGIC', val: word });
+      else throw new Error(`不允許的識別字：${word}`);
+      i += word.length; continue;
+    }
+    throw new Error(`不允許的語法字元：${src[i]}`);
+  }
+  let pos = 0;
+  const peek = () => tokens[pos] || null;
+  const consume = () => tokens[pos++];
+  function parseOr() {
+    let left = parseAnd();
+    while (peek() && peek().type === 'LOGIC' && peek().val === 'or') {
+      consume();
+      const right = parseAnd();
+      left = Boolean(left || right);
+    }
+    return left;
+  }
+  function parseAnd() {
+    let left = parseNot();
+    while (peek() && peek().type === 'LOGIC' && peek().val === 'and') {
+      consume();
+      const right = parseNot();
+      left = Boolean(left && right);
+    }
+    return left;
+  }
+  function parseNot() {
+    if (peek() && peek().type === 'LOGIC' && peek().val === 'not') {
+      consume();
+      return !parseNot();
+    }
+    return parseComparison();
+  }
+  function parsePrimary() {
+    const tk = peek();
+    if (!tk) throw new Error('條件式不完整');
+    if (tk.type === 'PAREN' && tk.val === '(') {
+      consume();
+      const val = parseOr();
+      const close = consume();
+      if (!close || close.type !== 'PAREN' || close.val !== ')') throw new Error('括號未閉合');
+      return val;
+    }
+    if (tk.type === 'VAR' || tk.type === 'NUM') {
+      consume();
+      return tk.val;
+    }
+    throw new Error('無效的運算元');
+  }
+  function parseComparison() {
+    let left = parsePrimary();
+    if (!peek() || peek().type !== 'CMP') return Boolean(left);
+    let result = true;
+    while (peek() && peek().type === 'CMP') {
+      const op = consume().val;
+      const right = parsePrimary();
+      let cmp = false;
+      if (op === '<') cmp = left < right;
+      else if (op === '<=') cmp = left <= right;
+      else if (op === '>') cmp = left > right;
+      else if (op === '>=') cmp = left >= right;
+      else if (op === '==') cmp = left === right;
+      else if (op === '!=') cmp = left !== right;
+      result = result && cmp;
+      left = right;
+    }
+    return result;
+  }
+  const finalResult = parseOr();
+  if (pos !== tokens.length) throw new Error('條件式後方存在多餘字元');
+  return Boolean(finalResult);
+}
+
 async function syncDraftToMySQL(levelCode, draftCode) {
   if (!dbBackendReady || !db.session.studentUuid) return;
   try {
     await fetch('api/sync.php', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthJsonHeaders(),
       body: JSON.stringify({
         action: 'save_draft',
         student_uuid: db.session.studentUuid,
@@ -935,25 +1112,77 @@ async function evaluateSubmissionV23(sectorId, code, levelId = null) {
     latencyMs: 0
   };
 
+  const strippedCode = stripCodeComments(code, sectorId);
+
   if (!isBaseLevel) {
-    const hasL1 = activeLvl.requiredToken ? code.includes(activeLvl.requiredToken) : true;
+    const hasL1 = activeLvl.requiredToken ? strippedCode.includes(activeLvl.requiredToken) : true;
     if (!hasL1) {
       res.passedL1 = 0;
       res.passedL2 = sec.mode === 'runtime' ? -1 : null;
       res.passedL3 = sec.mode === 'runtime' ? -1 : null;
       res.execStatus = sec.mode === 'runtime' ? 'FAIL_L1' : 'CONCEPT_FAIL';
       res.userErrorSummary = `缺少必要結構或關鍵字「${activeLvl.requiredToken}」。`;
-      res.learningSuggestion = `請確保程式碼保留並正確使用「${activeLvl.requiredToken}」語法結構，不要直接硬編碼輸出。`;
+      res.learningSuggestion = `請確保程式碼保留並正確使用「${activeLvl.requiredToken}」語法結構，不要直接硬編碼輸出或僅寫在註解中。`;
+    } else if (activeLvl.id === 'admin_2') {
+      const ok = /\bclass\s+ArchiveIndex\b/.test(strippedCode) && /\.getOrDefault\s*\(\s*key\s*,\s*0\s*\)/.test(strippedCode);
+      res.passedL1 = ok ? 1 : 0;
+      res.execStatus = ok ? 'CONCEPT_PASS' : 'CONCEPT_FAIL';
+      res.publicSummary = { passed: res.passedL1, total: 1 };
+      res.userErrorSummary = ok ? null : '未正確使用 map.getOrDefault(key, 0) 提供整數預設值 0（若回傳 null 拆箱仍會觸發 NullPointerException）。';
+      res.learningSuggestion = ok ? null : '請將第 4 行改為 return map.getOrDefault(key, 0);。';
+    } else if (activeLvl.id === 'industrial_2') {
+      const hasRefPtr = /void\s+release_buffer\s*\(\s*int\s*\*\s*&\s*buf\s*\)/.test(strippedCode);
+      const hasDelete = /delete\s*\[\s*\]\s*buf\s*;/.test(strippedCode);
+      const hasNull = /\bbuf\s*=\s*nullptr\s*;/.test(strippedCode);
+      const ok = hasRefPtr && hasDelete && hasNull;
+      res.passedL1 = ok ? 1 : 0;
+      res.execStatus = ok ? 'CONCEPT_PASS' : 'CONCEPT_FAIL';
+      res.publicSummary = { passed: res.passedL1, total: 1 };
+      res.userErrorSummary = ok ? null : (!hasRefPtr
+        ? '指標參數必須使用指標參考 (int*& buf)，否則 buf = nullptr 只會清空區域複本。'
+        : '必須在 delete[] buf; 之後將 buf 設為 nullptr; 以避免懸空指標。');
+      res.learningSuggestion = ok ? null : '確認簽章為 void release_buffer(int*& buf)，並於 delete[] buf; 後加上 buf = nullptr;。';
     } else if (sec.mode === 'concept_simulation') {
-      const ok = activeLvl.passPattern ? code.includes(activeLvl.passPattern) : true;
+      const ok = activeLvl.passPattern ? strippedCode.includes(activeLvl.passPattern) : true;
       res.passedL1 = ok ? 1 : 0;
       res.execStatus = ok ? 'CONCEPT_PASS' : 'CONCEPT_FAIL';
       res.publicSummary = { passed: res.passedL1, total: 1 };
       res.userErrorSummary = ok ? null : `未符合概念模式條件：「${activeLvl.passPattern}」。`;
       res.learningSuggestion = ok ? null : `檢查語法關鍵字是否符合「${activeLvl.passPattern}」。`;
+    } else if (activeLvl.id === 'market_2') {
+      const workerRes = await runJsInWorker(code, 2000);
+      if (workerRes.status === 'TIMEOUT') {
+        res.passedL2 = -1; res.passedL3 = -1;
+        res.execStatus = 'TIMEOUT';
+        res.userErrorSummary = '程式執行超過 2000ms Watchdog 上限，系統已強制中止。';
+        res.learningSuggestion = '請檢查是否存在無窮迴圈。';
+      } else if (!workerRes.data.ok) {
+        res.passedL2 = -1; res.passedL3 = -1;
+        res.execStatus = 'RUNTIME_ERROR';
+        res.userErrorSummary = `JavaScript 執行錯誤：${workerRes.data.runtimeError}`;
+        res.learningSuggestion = '請檢查變數名稱與語法是否正確。';
+      } else {
+        const l2Ok = /total\s*>=\s*300/.test(strippedCode);
+        const l3Ok = workerRes.data.stdout === '300';
+        res.passedL2 = l2Ok ? 1 : 0;
+        res.passedL3 = l3Ok ? 1 : 0;
+        res.publicSummary = { passed: (l2Ok && l3Ok) ? 1 : 0, total: 1 };
+        res.hiddenTestsPassed = (l2Ok && l3Ok);
+        res.hiddenInternalDetail = res.hiddenTestsPassed ? 'Hidden 2/2' : 'Hidden 0/2';
+        if (l2Ok && l3Ok) res.execStatus = 'PASS';
+        else if (!l2Ok) {
+          res.execStatus = 'FAIL_L2';
+          res.userErrorSummary = '折扣門檻判斷未包含 300（需使用 total >= 300）。';
+          res.learningSuggestion = '檢查三元運算子條件是否已改為 total >= 300。';
+        } else {
+          res.execStatus = 'FAIL_L3';
+          res.userErrorSummary = `標準輸出 (${workerRes.data.stdout || '空'}) 與預期「300」不符。`;
+          res.learningSuggestion = '確認輸出實付金額為 300。';
+        }
+      }
     } else {
-      const l2Ok = activeLvl.passPattern ? code.includes(activeLvl.passPattern) : true;
-      const l3Ok = activeLvl.expectedStdout ? (code.includes(activeLvl.expectedStdout) || l2Ok) : null;
+      const l2Ok = activeLvl.passPattern ? strippedCode.includes(activeLvl.passPattern) : true;
+      const l3Ok = activeLvl.expectedStdout ? (strippedCode.includes(activeLvl.expectedStdout) || (activeLvl.id === 'farm_2' && l2Ok && /print\s*\(\s*count\s*\)/.test(strippedCode))) : null;
       res.passedL2 = l2Ok ? 1 : 0;
       res.passedL3 = l3Ok === null ? null : (l3Ok ? 1 : 0);
       res.publicSummary = { passed: (l2Ok && l3Ok !== false) ? 1 : 0, total: 1 };
@@ -972,23 +1201,23 @@ async function evaluateSubmissionV23(sectorId, code, levelId = null) {
     }
   } else if (sec.mode === 'concept_simulation') {
     if (sectorId === 'admin') {
-      const ok = /\bclass\s+TownClockTimer\b/.test(code) && /\bprivate\s+int\s+strikeCount\b/.test(code);
+      const ok = /\bclass\s+TownClockTimer\b/.test(strippedCode) && /\bprivate\s+int\s+strikeCount\b/.test(strippedCode);
       res.passedL1 = ok ? 1 : 0;
       res.execStatus = ok ? 'CONCEPT_PASS' : 'CONCEPT_FAIL';
       res.publicSummary = { passed: res.passedL1, total: 1 };
       res.userErrorSummary = ok ? null : '成員變數 strikeCount 仍暴露為 public，未受封裝保護。';
       res.learningSuggestion = ok ? null : '在物件導向設計中，內部狀態欄位應設為 private，避免外部直接修改。';
     } else {
-      const ok = /calibrate_valve\s*\(\s*int\s*\*\s*valve_status\s*\)/.test(code) && /\*valve_status\s*=\s*1\s*;/.test(code);
+      const ok = /calibrate_valve\s*\(\s*int\s*\*\s*valve_status\s*\)/.test(strippedCode) && /\*valve_status\s*=\s*1\s*;/.test(strippedCode);
       res.passedL1 = ok ? 1 : 0;
       res.execStatus = ok ? 'CONCEPT_PASS' : 'CONCEPT_FAIL';
       res.publicSummary = { passed: res.passedL1, total: 1 };
-      res.userErrorSummary = ok ? null : '直接賦值給指標變數會改寫記憶體位址，而非修改目標值。';
+      res.userErrorSummary = ok ? null : '直接賦值給指標變數會導致編譯型別錯誤（int* 無法直接賦值 int）且未寫入目標記憶體。';
       res.learningSuggestion = ok ? null : '在指標變數前加上解引用運算元 *（即 *valve_status = 1;）以寫入目標記憶體。';
     }
   } else if (sectorId === 'farm') {
-    const hasDef = /def\s+evaluate_sprinkler\s*\(\s*moisture\s*\)\s*:/.test(code);
-    const hasIf = /\bif\b/.test(code);
+    const hasDef = /def\s+evaluate_sprinkler\s*\(\s*moisture\s*\)\s*:/.test(strippedCode);
+    const hasIf = /\bif\b/.test(strippedCode);
     if (!hasDef || !hasIf) {
       res.passedL1 = 0; res.passedL2 = -1; res.passedL3 = -1;
       res.execStatus = 'FAIL_L1';
@@ -996,10 +1225,10 @@ async function evaluateSubmissionV23(sectorId, code, levelId = null) {
       res.learningSuggestion = '系統會自動呼叫 evaluate_sprinkler(moisture) 並檢查 if 分支，請保留函式名稱與條件結構。';
     } else {
       try {
-        const condMatch = code.match(/if\s+([^:]+):/);
+        const condMatch = strippedCode.match(/if\s+([^:\n]+):/);
         if (!condMatch) throw new Error('if 語句缺少冒號 (:) 或條件不完整');
-        const jsCond = condMatch[1].replace(/\band\b/g, '&&').replace(/\bor\b/g, '||').replace(/\bnot\b/g, '!');
-        const evalFn = new Function('moisture', `return (${jsCond}) ? "SPRINKLER_ON" : "SPRINKLER_OFF";`);
+        const condExpr = condMatch[1].trim();
+        const evalFn = (m) => safeEvalPythonMoistureCond(condExpr, m) ? 'SPRINKLER_ON' : 'SPRINKLER_OFF';
 
         const pubActual = evalFn(18);
         const hid1 = evalFn(39), hid2 = evalFn(40), hid3 = evalFn(60);
@@ -1648,7 +1877,7 @@ async function flushOfflineSyncQueue() {
     try {
       const resp = await fetch('api/sync.php', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildAuthJsonHeaders(),
         body: JSON.stringify(item)
       });
       if (resp.ok) {
@@ -1672,12 +1901,19 @@ async function syncResultToMySQL(payload) {
     if (window.location.protocol === 'file:') return;
     const resp = await fetch('api/sync.php', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthJsonHeaders(),
       body: JSON.stringify(payload)
     });
     if (resp.ok) {
       const json = await resp.json();
       if (json.ok) {
+        if (typeof json.affection_score === 'number' && payload && payload.sector_id && db.session && db.session.studentUuid) {
+          const affKey = `${db.session.studentUuid}_${payload.sector_id}`;
+          if (!db.affection[affKey]) db.affection[affKey] = { score: 0, tier: 1 };
+          db.affection[affKey].score = json.affection_score;
+          db.affection[affKey].tier = Number(json.affection_tier || getTier(json.affection_score));
+          saveState();
+        }
         appendConsole('[MySQL Sync] 審計日誌、進度與好感度已同步寫入 XAMPP MySQL。', 'ok');
         return;
       }
@@ -2137,7 +2373,7 @@ function renderSaveSlots() {
     if (dbBackendReady && db.session.studentUuid) {
       await fetch('api/save_slots.php', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildAuthJsonHeaders(),
         body: JSON.stringify({ action: 'delete', student_uuid: db.session.studentUuid, slot_index: slotIdx })
       }).catch(() => {});
     }
@@ -2171,7 +2407,7 @@ async function saveToSlot(idx) {
     try {
       const resp = await fetch('api/save_slots.php', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildAuthJsonHeaders(),
         body: JSON.stringify({ action: 'save', student_uuid: uuid, slot_index: idx, ...slotData })
       });
       const res = await resp.json();
@@ -2196,7 +2432,7 @@ async function loadFromSlot(idx) {
     try {
       const resp = await fetch('api/save_slots.php', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildAuthJsonHeaders(),
         body: JSON.stringify({ action: 'load', student_uuid: db.session.studentUuid, slot_index: idx })
       });
       const res = await resp.json();
@@ -2534,7 +2770,7 @@ function openCharacterChatModal(sectorId) {
     if (dbBackendReady && uuid) {
       fetch('api/sync.php', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildAuthJsonHeaders(),
         body: JSON.stringify({ action: 'mark_dialogue_read', student_uuid: uuid, sector_id: sectorId })
       }).catch(() => {});
     }
@@ -3908,7 +4144,7 @@ window.addEventListener('DOMContentLoaded', () => {
     if (dbBackendReady) {
       fetch('api/admin_levels.php', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildAuthJsonHeaders(),
         body: JSON.stringify({ action: 'create', ...newLvl })
       }).catch(() => {});
     }
