@@ -127,7 +127,11 @@
                 <span class="font-mono text-xs font-black bg-slate-950/15 px-2.5 py-1 rounded-lg">START</span>
               </button>
 
-              <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+              <div class="grid grid-cols-2 gap-2.5">
+                <button id="btnOpenStoryHub" class="min-h-[48px] px-3 py-3 rounded-xl bg-gradient-to-r from-orange-950/90 to-amber-950/80 hover:from-orange-900 hover:to-amber-900 border border-orange-500/60 text-xs font-mono text-orange-200 flex items-center justify-between transition">
+                  <span>📜 1978 主線故事</span>
+                  <span id="titleEvidenceCount" class="text-amber-300 font-bold">證據 0/4</span>
+                </button>
                 <button id="btnOpenSaveLoadTitle" class="min-h-[48px] px-3 py-3 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700 hover:border-emerald-500/60 text-xs font-mono text-emerald-200 flex items-center justify-between transition">
                   <span>💾 存讀</span>
                   <span id="titleSlotsCount" class="text-emerald-300 font-bold">[0/4]</span>
@@ -136,7 +140,7 @@
                   <span>📖 劇本</span>
                   <span class="text-amber-300 font-bold">24</span>
                 </button>
-                <button id="btnOpenAchievements" class="col-span-2 sm:col-span-1 min-h-[48px] px-3 py-3 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700 hover:border-sky-500/60 text-xs font-mono text-sky-200 flex items-center justify-between transition">
+                <button id="btnOpenAchievements" class="min-h-[48px] px-3 py-3 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700 hover:border-sky-500/60 text-xs font-mono text-sky-200 flex items-center justify-between transition">
                   <span>🏅 成就</span>
                   <span id="titleAchCount" class="text-sky-300 font-bold">0/4</span>
                 </button>
@@ -1172,15 +1176,18 @@
   <!-- Character Info & AI Chat Modal -->
   <div id="modalCharChat" role="dialog" aria-modal="true" aria-labelledby="chatModalTitle" aria-describedby="chatModalDesc" class="fixed inset-0 z-50 hidden bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
     <div class="w-full max-w-3xl bg-slate-900 border border-orange-500/40 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-      <div class="px-5 py-3.5 bg-slate-950 border-b border-slate-800 flex justify-between items-center">
-        <div class="flex items-center gap-2">
-          <span id="chatModalLangBadge" class="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 font-mono text-xs border border-emerald-700">Python</span>
-          <div>
-            <h3 id="chatModalTitle" class="font-bold font-serif text-white text-base">蘇曉 · 角色設定與對話空間</h3>
-            <p id="chatModalDesc" class="text-xs text-slate-400 font-mono">檢視角色背景與好感度並進行互動對話</p>
+      <div class="px-5 py-3.5 bg-slate-950 border-b border-slate-800 flex flex-wrap justify-between items-center gap-2">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <span id="chatModalLangBadge" class="px-2.5 py-0.5 rounded-lg bg-emerald-950 text-emerald-300 font-mono text-xs border border-emerald-700 shrink-0">Python</span>
+          <div class="min-w-0">
+            <h3 id="chatModalTitle" class="font-bold font-serif text-white text-base truncate">蘇曉 · 角色設定與對話空間</h3>
+            <p id="chatModalDesc" class="text-xs text-slate-400 font-mono truncate">檢視角色背景與好感度並進行互動對話</p>
           </div>
         </div>
-        <button data-close-modal="modalCharChat" aria-label="關閉角色聊天視窗" class="min-h-[40px] px-3 rounded-xl text-slate-300 hover:text-white font-mono">✕</button>
+        <div class="flex items-center gap-2 shrink-0">
+          <span id="chatLiveStatusPill" class="px-2.5 py-1 rounded-full bg-emerald-950/90 border border-emerald-700/70 text-emerald-300 font-mono text-[11px]">● AI 即時連線</span>
+          <button data-close-modal="modalCharChat" aria-label="關閉角色聊天視窗" class="min-h-[40px] px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white font-mono transition">✕</button>
+        </div>
       </div>
       <div class="flex-1 overflow-y-auto custom-scrollbar grid grid-cols-1 md:grid-cols-12 min-h-0">
         <div class="md:col-span-5 p-4 bg-slate-950/70 border-b md:border-b-0 md:border-r border-slate-800 flex flex-col justify-between gap-3 text-xs">
@@ -1206,21 +1213,31 @@
               </div>
             </div>
           </div>
-          <div class="p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono text-slate-300">
-            對話模式：<span class="text-amber-300">Offline Mock</span>（預留 <code class="text-sky-300">POST /api/chat</code>）
+          <div class="p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono text-slate-300 space-y-1">
+            <div>對話模式：<span id="chatModeBadge" class="text-emerald-300">AI Character Agent</span></div>
+            <div id="chatStatusNotice" class="hidden text-[11px] text-amber-300"></div>
           </div>
         </div>
-        <div class="md:col-span-7 flex flex-col min-h-[300px] bg-[#0b0f17]">
-          <div id="chatMessagesBox" class="flex-1 p-4 overflow-y-auto custom-scrollbar space-y-3 text-sm"></div>
-          <div class="px-3 py-2 border-t border-slate-800 flex flex-wrap items-center gap-1.5 bg-slate-950/60">
-            <button data-quick-chat="你好，最近小鎮情況還好嗎？" class="quick-chat-btn min-h-[38px] px-3 py-1 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs transition">👋 問候近況</button>
-            <button data-quick-chat="可以跟我聊聊你的程式理念嗎？" class="quick-chat-btn min-h-[38px] px-3 py-1 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs transition">💻 聊程式觀念</button>
-            <button data-quick-chat="關於 1978 年圖靈博士的事你知道多少？" class="quick-chat-btn min-h-[38px] px-3 py-1 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs transition">🕰️ 1978 往事</button>
-            <button id="btnResetQuickChat" type="button" class="ml-auto min-h-[38px] px-2.5 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 text-xs font-mono transition" title="重置本回合快捷問題">↺ 重置</button>
+        <div class="md:col-span-7 flex flex-col min-h-[340px] bg-[#0b0f17]">
+          <div id="chatMessagesBox" role="log" aria-live="polite" aria-label="角色對話紀錄" class="flex-1 p-4 overflow-y-auto custom-scrollbar space-y-3.5 text-sm"></div>
+          <div class="px-3 py-2 border-t border-slate-800 flex flex-wrap items-center gap-1.5 bg-slate-950/80">
+            <button data-quick-chat="你好，最近小鎮情況還好嗎？" class="quick-chat-btn min-h-[36px] px-3 py-1 rounded-full bg-slate-800/90 hover:bg-orange-950/70 border border-slate-700 hover:border-orange-500/60 text-slate-200 text-xs transition">👋 問候近況</button>
+            <button data-quick-chat="可以跟我聊聊你的程式理念嗎？" class="quick-chat-btn min-h-[36px] px-3 py-1 rounded-full bg-slate-800/90 hover:bg-orange-950/70 border border-slate-700 hover:border-orange-500/60 text-slate-200 text-xs transition">💻 聊程式觀念</button>
+            <button data-quick-chat="關於 1978 年圖靈博士的事你知道多少？" class="quick-chat-btn min-h-[36px] px-3 py-1 rounded-full bg-slate-800/90 hover:bg-orange-950/70 border border-slate-700 hover:border-orange-500/60 text-slate-200 text-xs transition">🕰️ 1978 往事</button>
+            <div class="ml-auto flex items-center gap-1.5">
+              <button id="btnClearChatHistory" type="button" class="min-h-[36px] px-2.5 py-1 rounded-full bg-slate-900 hover:bg-rose-950/60 border border-slate-700 hover:border-rose-700/60 text-slate-300 text-xs font-mono transition" title="清空目前角色短期對話">🧹 清空</button>
+              <button id="btnResetQuickChat" type="button" class="min-h-[36px] px-2.5 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 text-xs font-mono transition" title="重置本回合快捷問題">↺ 重置</button>
+            </div>
           </div>
-          <div class="p-3 border-t border-slate-800 bg-slate-950 flex gap-2">
-            <input id="chatInputField" type="text" aria-label="輸入聊天訊息" placeholder="輸入訊息與角色聊天..." class="flex-1 min-h-[44px] px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white outline-none focus:border-orange-500">
-            <button id="btnSendChat" class="min-h-[44px] px-4 py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs transition shrink-0">發送</button>
+          <div class="p-3 border-t border-slate-800 bg-slate-950 space-y-1.5">
+            <div class="flex gap-2">
+              <input id="chatInputField" type="text" maxlength="4000" aria-label="輸入聊天訊息" placeholder="輸入訊息與角色聊天（按 Enter 送出）..." class="flex-1 min-h-[44px] px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white outline-none focus:border-orange-500 transition">
+              <button id="btnSendChat" class="min-h-[44px] px-4 py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs transition shrink-0">發送 ↵</button>
+            </div>
+            <div class="flex items-center justify-between text-[10px] font-mono text-slate-400 px-1">
+              <span>支援短期記憶（最多保留最近 10 則對話）</span>
+              <span id="chatCharCounter">0 / 4000</span>
+            </div>
           </div>
         </div>
       </div>
@@ -1259,10 +1276,11 @@
         </div>
         <button data-close-modal="modalAdminDash" aria-label="關閉教師後台" class="min-h-[40px] px-3 rounded-xl text-slate-300 hover:text-white font-mono">✕</button>
       </div>
-      <div class="grid grid-cols-3 bg-slate-950 border-b border-slate-800 text-xs font-mono shrink-0">
+      <div class="grid grid-cols-2 sm:grid-cols-4 bg-slate-950 border-b border-slate-800 text-xs font-mono shrink-0">
         <button id="tabAdminAnalytics" class="min-h-[44px] py-3 border-b-2 border-amber-500 text-amber-300 font-bold transition">📊 學習分析與日誌</button>
         <button id="tabAdminLevels" class="min-h-[44px] py-3 border-b-2 border-transparent text-slate-300 hover:text-white transition">🧩 關卡題庫管理</button>
         <button id="tabAdminScripts" class="min-h-[44px] py-3 border-b-2 border-transparent text-slate-300 hover:text-white transition">🎭 24 條劇本管理</button>
+        <button id="tabAdminStories" class="min-h-[44px] py-3 border-b-2 border-transparent text-slate-300 hover:text-white transition">📝 Story CMS 故事編輯</button>
       </div>
       <div class="p-5 overflow-y-auto custom-scrollbar space-y-5 text-xs font-mono">
         <div id="panelAdminAnalytics" class="space-y-4">
@@ -1362,6 +1380,123 @@
           </div>
           <div id="adminScriptsList" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[340px] overflow-y-auto custom-scrollbar pr-1"></div>
         </div>
+
+        <!-- Tab 4: Story CMS 故事編輯器 -->
+        <div id="panelAdminStories" class="hidden space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl bg-slate-950 border border-slate-800">
+            <div class="flex flex-wrap items-center gap-2">
+              <select id="cmsFilterChapter" aria-label="篩選章節" class="min-h-[38px] px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-700 text-slate-200 text-xs">
+                <option value="ALL">全部章節 (Ch.1–6)</option>
+                <option value="1">第一章：返鄉與重啟</option>
+                <option value="2">第二章：區域調查篇</option>
+                <option value="3">第三章：1978 遺留資料</option>
+                <option value="4">第四章：1978 核心真相</option>
+                <option value="5">第五章：最終抉擇</option>
+                <option value="6">第六章：角色與真結局</option>
+              </select>
+              <select id="cmsFilterSector" aria-label="篩選區域" class="min-h-[38px] px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-700 text-slate-200 text-xs">
+                <option value="ALL">全部區域</option>
+                <option value="common">common (共通主線)</option>
+                <option value="farm">farm (蘇曉)</option>
+                <option value="market">market (夏海)</option>
+                <option value="admin">admin (林靜)</option>
+                <option value="industrial">industrial (鐵嵐)</option>
+              </select>
+            </div>
+            <div class="flex items-center gap-2">
+              <button id="btnCmsNewNode" type="button" class="min-h-[38px] px-3 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs transition">＋ 新增故事節點</button>
+              <button id="btnCmsPreviewFlow" type="button" class="min-h-[38px] px-3 py-1.5 rounded-xl bg-sky-700 hover:bg-sky-600 text-white font-bold text-xs transition">▶ 模擬器試跑</button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            <div class="lg:col-span-5 space-y-2">
+              <div class="text-xs text-slate-400 font-bold">故事節點清單（點擊編輯）</div>
+              <div id="cmsNodeList" class="space-y-2 max-h-[420px] overflow-y-auto custom-scrollbar pr-1"></div>
+            </div>
+
+            <div class="lg:col-span-7 p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+              <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                <span id="cmsEditorHeading" class="text-sm font-bold text-amber-300">編輯故事節點</span>
+                <span id="cmsValidationBadge" class="px-2 py-0.5 rounded bg-emerald-950 border border-emerald-700 text-emerald-300 text-[11px]">Schema Ready</span>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label class="block text-[11px] text-slate-400 mb-1">節點代碼 (node_code)</label>
+                  <input id="cmsNodeCode" type="text" placeholder="ch1_bell_100_trigger" class="w-full min-h-[38px] px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs">
+                </div>
+                <div>
+                  <label class="block text-[11px] text-slate-400 mb-1">節點標題 (title)</label>
+                  <input id="cmsNodeTitle" type="text" placeholder="第 100 下鐘聲與 1978 銅鑰匙" class="w-full min-h-[38px] px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs">
+                </div>
+                <div>
+                  <label class="block text-[11px] text-slate-400 mb-1">章節 / 區域</label>
+                  <div class="grid grid-cols-2 gap-1.5">
+                    <select id="cmsChapter" class="min-h-[38px] px-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs">
+                      <option value="1">Ch.1</option><option value="2">Ch.2</option><option value="3">Ch.3</option>
+                      <option value="4">Ch.4</option><option value="5">Ch.5</option><option value="6">Ch.6</option>
+                    </select>
+                    <select id="cmsSector" class="min-h-[38px] px-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs">
+                      <option value="common">common</option><option value="farm">farm</option><option value="market">market</option>
+                      <option value="admin">admin</option><option value="industrial">industrial</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label class="block text-[11px] text-slate-400 mb-1">事件類型 / 排序</label>
+                  <div class="grid grid-cols-2 gap-1.5">
+                    <select id="cmsEventType" class="min-h-[38px] px-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs">
+                      <option value="prologue">prologue</option><option value="npc_trigger">npc_trigger</option>
+                      <option value="care">care (關心)</option><option value="conflict">conflict (衝突)</option>
+                      <option value="understand">understand (理解)</option><option value="sacrifice">sacrifice (犧牲)</option>
+                      <option value="evidence">evidence (證據)</option><option value="truth_1978">truth_1978</option>
+                      <option value="final_choice">final_choice</option><option value="ending">ending</option>
+                    </select>
+                    <input id="cmsSortOrder" type="number" min="0" value="10" class="min-h-[38px] px-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs">
+                  </div>
+                </div>
+                <div>
+                  <label class="block text-[11px] text-slate-400 mb-1">場景地點 (location_name)</label>
+                  <input id="cmsSceneLocation" type="text" placeholder="源泉鎮 · 鎮公所前紀念廣場" class="w-full min-h-[38px] px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs">
+                </div>
+                <div>
+                  <label class="block text-[11px] text-slate-400 mb-1">時段與狀態</label>
+                  <div class="flex items-center gap-2">
+                    <select id="cmsTimeOfDay" class="flex-1 min-h-[38px] px-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs">
+                      <option value="morning">morning</option><option value="afternoon">afternoon</option>
+                      <option value="dusk">dusk</option><option value="night">night</option><option value="midnight">midnight</option>
+                    </select>
+                    <label class="flex items-center gap-1.5 text-slate-200 cursor-pointer shrink-0">
+                      <input id="cmsIsActive" type="checkbox" checked class="accent-emerald-500"> 啟用
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div class="space-y-2 pt-1">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-bold text-slate-200">對話腳本 (Dialogues)</span>
+                  <button id="btnCmsAddLine" type="button" class="min-h-[32px] px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 text-[11px]">＋ 新增台詞</button>
+                </div>
+                <div id="cmsDialogueLines" class="space-y-2 max-h-[180px] overflow-y-auto custom-scrollbar pr-1"></div>
+              </div>
+
+              <div class="space-y-2 pt-1">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-bold text-slate-200">選項分支 (Choices，最多 4 項)</span>
+                  <button id="btnCmsAddChoice" type="button" class="min-h-[32px] px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 text-[11px]">＋ 新增選項</button>
+                </div>
+                <div id="cmsChoicesList" class="space-y-2 max-h-[140px] overflow-y-auto custom-scrollbar pr-1"></div>
+              </div>
+
+              <div class="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-800">
+                <button id="btnCmsDeleteNode" type="button" class="min-h-[38px] px-3 py-1.5 rounded-xl bg-rose-950 hover:bg-rose-900 border border-rose-700 text-rose-200 text-xs transition">停用 / 刪除</button>
+                <button id="btnCmsSaveNode" type="button" class="min-h-[38px] px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition">💾 儲存故事節點</button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -1408,6 +1543,53 @@
         <button data-close-modal="modalAchievements" aria-label="關閉成就視窗" class="min-h-[40px] px-3 rounded-xl text-slate-300 hover:text-white font-mono">✕</button>
       </div>
       <div id="achievementsGrid" class="p-5 overflow-y-auto custom-scrollbar grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs"></div>
+    </div>
+  </div>
+
+  <!-- Gal Game Visual Novel Story Player Modal -->
+  <div id="modalStoryPlayer" role="dialog" aria-modal="true" aria-labelledby="storyPlayerTitle" aria-describedby="storyPlayerLocation" class="fixed inset-0 z-50 hidden bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-5">
+    <div class="w-full max-w-4xl bg-slate-900 border border-orange-500/50 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+      <div class="px-5 py-3 bg-slate-950 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <span id="storyChapterBadge" class="px-2.5 py-0.5 rounded-lg bg-orange-950 border border-orange-500/60 text-orange-300 font-mono text-xs font-bold shrink-0">CH.1</span>
+          <div class="min-w-0">
+            <h3 id="storyPlayerTitle" class="font-bold font-serif text-white text-sm sm:text-base truncate">第 100 下鐘聲與 1978 銅鑰匙</h3>
+            <p id="storyPlayerLocation" class="text-[11px] font-mono text-slate-400 truncate">源泉鎮 · 鎮公所前紀念廣場</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <span id="storyEvidenceBadge" class="px-2.5 py-1 rounded-lg bg-sky-950 border border-sky-700/70 text-sky-300 font-mono text-xs">1978 證據 0/4</span>
+          <button data-close-modal="modalStoryPlayer" aria-label="關閉劇情播放器" class="min-h-[38px] px-3 rounded-xl text-slate-300 hover:text-white font-mono">✕</button>
+        </div>
+      </div>
+
+      <div id="storyStageBg" class="relative flex-1 min-h-[220px] sm:min-h-[260px] sky-gradient p-5 flex flex-col justify-end overflow-hidden">
+        <div class="flex items-end justify-between gap-4">
+          <div class="flex items-center gap-4">
+            <div id="storySpeakerAvatar" class="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-slate-950/85 border border-orange-500/40 p-2.5 flex items-center justify-center shrink-0 shadow-lg"></div>
+            <div class="space-y-1.5">
+              <div class="flex flex-wrap items-center gap-2">
+                <span id="storySpeakerName" class="px-3 py-1 rounded-xl bg-slate-950/90 border border-orange-500/50 text-orange-300 font-bold font-serif text-sm">小豆</span>
+                <span id="storyEmotionBadge" class="px-2.5 py-1 rounded-xl bg-slate-950/85 border border-slate-700 text-slate-200 font-mono text-xs">😐 平靜</span>
+              </div>
+              <div id="storyNodeListStrip" class="flex flex-wrap gap-1.5"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="p-5 bg-slate-950 border-t border-slate-800 space-y-4">
+        <div id="storyDialogueBox" class="min-h-[96px] p-4 rounded-2xl bg-slate-900/95 border border-slate-800/90 shadow-inner text-slate-100 font-serif text-sm sm:text-base leading-relaxed cursor-pointer"></div>
+        <div id="storyClickHint" class="text-[11px] font-mono text-slate-400 text-right">點擊對話框可快速顯示全文</div>
+        <div id="storyChoicesBox" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-2.5"></div>
+        <div class="flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+          <span id="storyLineProgress" class="text-slate-400">對話 1 / 3</span>
+          <div class="flex items-center gap-2">
+            <button id="btnStoryPrevLine" type="button" class="min-h-[40px] px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition">← 上一句</button>
+            <button id="btnStoryNextLine" type="button" class="min-h-[40px] px-4 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold transition">繼續 →</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 

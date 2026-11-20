@@ -483,6 +483,7 @@ async function syncSessionWithDatabase() {
       if (data.ok && data.student_uuid) {
         db.session.studentUuid = data.student_uuid;
         db.session.role = data.role || 'student';
+        if (data.csrf_token) db.session.csrfToken = data.csrf_token;
         saveState();
         updateAuthBadges();
         return data.student_uuid;
@@ -556,6 +557,7 @@ async function bootstrapFromDatabase() {
     if (data.session && data.session.studentUuid) {
       db.session.studentUuid = data.session.studentUuid;
       db.session.role = data.session.role || 'student';
+      db.session.csrfToken = data.session.csrfToken || '';
     }
     if (isPlainObject(data.progress) && Object.keys(data.progress).length > 0) {
       db.progress = { ...db.progress, ...data.progress };
@@ -2475,6 +2477,45 @@ const CHAR_PROFILES = {
 };
 
 let activeChatSector = 'farm';
+let isChatRequestInFlight = false;
+const MAX_SHORT_TERM_CHAT_HISTORY = 10;
+const chatHistoryBySector = { farm: [], market: [], admin: [], industrial: [] };
+
+function pushChatHistory(sectorId, role, content) {
+  if (!chatHistoryBySector[sectorId]) chatHistoryBySector[sectorId] = [];
+  if (role !== 'user' && role !== 'assistant') return;
+  const clean = String(content || '').trim();
+  if (!clean) return;
+  chatHistoryBySector[sectorId].push({ role, content: clean });
+  if (chatHistoryBySector[sectorId].length > MAX_SHORT_TERM_CHAT_HISTORY) {
+    chatHistoryBySector[sectorId] = chatHistoryBySector[sectorId].slice(-MAX_SHORT_TERM_CHAT_HISTORY);
+  }
+}
+
+function setChatModeUI(modeText, isAi, noticeText = '') {
+  const badge = document.getElementById('chatModeBadge');
+  const notice = document.getElementById('chatStatusNotice');
+  const pill = document.getElementById('chatLiveStatusPill');
+  if (badge) {
+    badge.textContent = modeText;
+    badge.className = isAi ? 'text-emerald-300 font-bold' : 'text-amber-300 font-bold';
+  }
+  if (pill) {
+    pill.textContent = isAi ? '● AI 即時連線' : '◐ 離線劇本模式';
+    pill.className = isAi
+      ? 'px-2.5 py-1 rounded-full bg-emerald-950/90 border border-emerald-700/70 text-emerald-300 font-mono text-[11px]'
+      : 'px-2.5 py-1 rounded-full bg-amber-950/90 border border-amber-700/70 text-amber-300 font-mono text-[11px]';
+  }
+  if (notice) {
+    if (noticeText) {
+      notice.textContent = noticeText;
+      notice.classList.remove('hidden');
+    } else {
+      notice.textContent = '';
+      notice.classList.add('hidden');
+    }
+  }
+}
 
 function openCharacterChatModal(sectorId) {
   const sec = SECTORS[sectorId];
@@ -2482,6 +2523,12 @@ function openCharacterChatModal(sectorId) {
   const uuid = db.session.studentUuid;
   const aff = (uuid && db.affection[`${uuid}_${sectorId}`]) || { score: 0, tier: 1 };
   activeChatSector = sectorId;
+  isChatRequestInFlight = false;
+  setChatModeUI('AI Reply (就緒)', true, '');
+  const sendBtn = document.getElementById('btnSendChat');
+  const inputEl = document.getElementById('chatInputField');
+  if (sendBtn) sendBtn.disabled = false;
+  if (inputEl) inputEl.disabled = false;
   if (db.unreadDialogueSectors && db.unreadDialogueSectors[sectorId]) {
     delete db.unreadDialogueSectors[sectorId];
     if (dbBackendReady && uuid) {
@@ -2508,40 +2555,197 @@ function openCharacterChatModal(sectorId) {
     b.textContent = b.dataset.origLabel || b.textContent;
     b.classList.remove('opacity-50', 'cursor-not-allowed');
   });
+  const counterEl = document.getElementById('chatCharCounter');
+  if (counterEl) counterEl.textContent = '0 / 4000';
   const box = document.getElementById('chatMessagesBox');
   box.innerHTML = '';
-  appendChatBubble('character', sec.heroine, prof.greetings[aff.tier - 1]);
+  appendChatBubble('character', sec.heroine, prof.greetings[aff.tier - 1], { sourceLabel: '角色問候' });
+  const hist = chatHistoryBySector[sectorId] || [];
+  hist.forEach(item => {
+    if (item.role === 'user') {
+      appendChatBubble('user', '你 (臨時管理員)', item.content);
+    } else {
+      appendChatBubble('character', sec.heroine, item.content, { sourceLabel: 'AI Reply', isAi: true });
+    }
+  });
   openModal('modalCharChat');
 }
 
-function appendChatBubble(sender, name, text) {
+function appendChatBubble(sender, name, text, meta = {}) {
   const box = document.getElementById('chatMessagesBox');
   const wrap = document.createElement('div');
-  wrap.className = sender === 'user' ? 'flex justify-end' : 'flex justify-start';
-  const bubbleClass = sender === 'user'
-    ? 'max-w-[82%] px-3.5 py-2.5 rounded-2xl rounded-br-sm bg-orange-600/90 text-white'
-    : 'max-w-[82%] px-3.5 py-2.5 rounded-2xl rounded-bl-sm bg-slate-800 border border-slate-700 text-slate-100 font-serif';
-  wrap.innerHTML = `<div class="${bubbleClass}"><div class="text-xs font-mono opacity-75 mb-0.5">${name}</div><div>${text}</div></div>`;
+  wrap.className = (sender === 'user' ? 'flex justify-end' : 'flex justify-start') + ' chat-bubble-enter';
+
+  const bubble = document.createElement('div');
+  bubble.className = sender === 'user'
+    ? 'max-w-[84%] px-4 py-2.5 rounded-2xl rounded-br-sm bg-gradient-to-br from-orange-600 to-amber-600 text-white shadow-sm'
+    : 'max-w-[84%] px-4 py-2.5 rounded-2xl rounded-bl-sm bg-slate-800/95 border border-slate-700/90 text-slate-100 font-serif shadow-sm';
+
+  const headerEl = document.createElement('div');
+  headerEl.className = 'flex items-center flex-wrap gap-1.5 text-xs font-mono opacity-80 mb-1';
+
+  const nameSpan = document.createElement('span');
+  nameSpan.textContent = String(name ?? '');
+  headerEl.appendChild(nameSpan);
+
+  if (sender !== 'user' && meta && meta.emotion && EMOTION_LABELS[meta.emotion]) {
+    const emoSpan = document.createElement('span');
+    emoSpan.className = 'px-1.5 py-0.5 rounded bg-slate-900/90 border border-slate-700 text-[11px] text-orange-300';
+    emoSpan.textContent = EMOTION_LABELS[meta.emotion];
+    headerEl.appendChild(emoSpan);
+  }
+
+  if (sender !== 'user' && meta && meta.sourceLabel) {
+    const srcSpan = document.createElement('span');
+    srcSpan.className = meta.isAi
+      ? 'px-1.5 py-0.5 rounded bg-emerald-950/90 border border-emerald-700/70 text-[10px] text-emerald-300'
+      : 'px-1.5 py-0.5 rounded bg-amber-950/90 border border-amber-700/70 text-[10px] text-amber-300';
+    srcSpan.textContent = String(meta.sourceLabel);
+    headerEl.appendChild(srcSpan);
+  }
+
+  const timeSpan = document.createElement('span');
+  timeSpan.className = 'ml-auto text-[10px] opacity-60';
+  timeSpan.textContent = new Date().toLocaleTimeString('zh-HK', { hour: '2-digit', minute: '2-digit', hour12: false });
+  headerEl.appendChild(timeSpan);
+
+  const bodyEl = document.createElement('div');
+  bodyEl.className = 'whitespace-pre-wrap break-words leading-relaxed';
+  bodyEl.textContent = String(text ?? '');
+
+  bubble.appendChild(headerEl);
+  bubble.appendChild(bodyEl);
+  wrap.appendChild(bubble);
   box.appendChild(wrap);
   box.scrollTop = box.scrollHeight;
 }
 
-function sendCharacterChatMessage(presetText = null) {
+function buildOfflineCharacterReply(sectorId, text) {
+  const prof = CHAR_PROFILES[sectorId];
+  if (/程式|代碼|code|邏輯|語言|理念/i.test(text)) return prof.replies.code;
+  if (/1978|圖靈|歷史|過去|博士/i.test(text)) return prof.replies.turing;
+  return prof.replies.default;
+}
+
+function appendChatTypingIndicator(name) {
+  const box = document.getElementById('chatMessagesBox');
+  const wrap = document.createElement('div');
+  wrap.id = 'chatTypingIndicator';
+  wrap.className = 'flex justify-start';
+  const bubble = document.createElement('div');
+  bubble.className = 'px-3.5 py-2 rounded-2xl rounded-bl-sm bg-slate-800/80 border border-slate-700 text-slate-300 text-xs font-mono animate-pulse';
+  bubble.textContent = `${name} 正在輸入中...`;
+  wrap.appendChild(bubble);
+  box.appendChild(wrap);
+  box.scrollTop = box.scrollHeight;
+  return wrap;
+}
+
+async function sendCharacterChatMessage(presetText = null) {
+  if (isChatRequestInFlight) return;
   const input = document.getElementById('chatInputField');
+  const sendBtn = document.getElementById('btnSendChat');
   const text = (presetText || input.value).trim();
   if (!text) return;
   if (!presetText) input.value = '';
+
+  const targetSector = activeChatSector;
+  const sec = SECTORS[targetSector];
+  const historySnapshot = (chatHistoryBySector[targetSector] || []).slice(-MAX_SHORT_TERM_CHAT_HISTORY);
+
   appendChatBubble('user', '你 (臨時管理員)', text);
   playSfx(720);
-  const sec = SECTORS[activeChatSector];
-  const prof = CHAR_PROFILES[activeChatSector];
-  let reply = prof.replies.default;
-  if (/程式|代碼|code|邏輯|語言|理念/i.test(text)) reply = prof.replies.code;
-  else if (/1978|圖靈|歷史|過去|博士/i.test(text)) reply = prof.replies.turing;
-  setTimeout(() => {
-    appendChatBubble('character', sec.heroine, reply);
-    playSfx(540, 'triangle', 0.08);
-  }, 280);
+
+  isChatRequestInFlight = true;
+  if (sendBtn) sendBtn.disabled = true;
+  if (input) input.disabled = true;
+  const typingEl = appendChatTypingIndicator(sec.heroine);
+
+  const FALLBACK_CODES = new Set([
+    'AI_DISABLED', 'AI_NOT_CONFIGURED', 'AI_RATE_LIMITED',
+    'AI_DAILY_REQUEST_QUOTA_EXCEEDED', 'AI_DAILY_TOKEN_QUOTA_EXCEEDED',
+    'AI_PROVIDER_BAD_RESPONSE', 'AI_PROVIDER_TIMEOUT', 'AI_PROVIDER_UNAVAILABLE',
+    'DB_UNAVAILABLE', 'AI_STORAGE_NOT_READY'
+  ]);
+
+  try {
+    const resp = await fetch('api/ai.php', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': db.session.csrfToken || ''
+      },
+      body: JSON.stringify({
+        action: 'chat',
+        intent: 'character_chat',
+        sector_id: targetSector,
+        message: text,
+        history: historySnapshot
+      })
+    });
+
+    const data = await resp.json().catch(() => null);
+    if (typingEl && typingEl.parentNode) typingEl.remove();
+
+    // Session 失效、權限錯誤或 CSRF 錯誤不可隱藏成普通離線回覆
+    if (resp.status === 401 || resp.status === 403 || (data && ['AI_SESSION_REQUIRED', 'AI_CSRF_INVALID', 'AI_FORBIDDEN', 'AI_ORIGIN_FORBIDDEN'].includes(data.error))) {
+      const errMsg = (data && data.msg) ? data.msg : 'Session 或安全驗證失效，請重新整理頁面。';
+      setChatModeUI('安全驗證失敗', false, errMsg);
+      appendChatBubble('character', '系統提示', errMsg, { sourceLabel: 'Auth/CSRF Error', isAi: false });
+      return;
+    }
+
+    if (resp.ok && data && data.ok && typeof data.reply === 'string' && data.reply.trim() !== '') {
+      pushChatHistory(targetSector, 'user', text);
+      pushChatHistory(targetSector, 'assistant', data.reply);
+      if (activeChatSector === targetSector) {
+        setChatModeUI('AI Reply (即時對話)', true, '');
+        appendChatBubble('character', sec.heroine, data.reply, {
+          emotion: data.emotion || null,
+          sourceLabel: 'AI Reply',
+          isAi: true
+        });
+        playSfx(540, 'triangle', 0.08);
+      }
+      return;
+    }
+
+    const errCode = data && data.error ? data.error : 'AI_PROVIDER_BAD_RESPONSE';
+    if (FALLBACK_CODES.has(errCode) || resp.status >= 500 || resp.status === 429) {
+      const offlineReply = buildOfflineCharacterReply(targetSector, text);
+      const reason = (data && data.msg) ? data.msg : 'AI 服務暫時無法使用';
+      if (activeChatSector === targetSector) {
+        setChatModeUI('Offline Reply (離線劇本)', false, `已切換離線模式：${reason}`);
+        appendChatBubble('character', sec.heroine, offlineReply, {
+          sourceLabel: 'Offline Reply',
+          isAi: false
+        });
+        playSfx(540, 'triangle', 0.08);
+      }
+      return;
+    }
+
+    const generalErr = (data && data.msg) ? data.msg : 'AI 對話請求失敗';
+    if (activeChatSector === targetSector) {
+      setChatModeUI('AI 請求異常', false, generalErr);
+      appendChatBubble('character', '系統提示', generalErr, { sourceLabel: 'Error', isAi: false });
+    }
+  } catch (err) {
+    if (typingEl && typingEl.parentNode) typingEl.remove();
+    const offlineReply = buildOfflineCharacterReply(targetSector, text);
+    if (activeChatSector === targetSector) {
+      setChatModeUI('Offline Reply (網路離線)', false, '無法連線至伺服器，已切換離線劇本');
+      appendChatBubble('character', sec.heroine, offlineReply, {
+        sourceLabel: 'Offline Reply',
+        isAi: false
+      });
+      playSfx(540, 'triangle', 0.08);
+    }
+  } finally {
+    isChatRequestInFlight = false;
+    if (sendBtn) sendBtn.disabled = false;
+    if (input) input.disabled = false;
+  }
 }
 
 function renderOfflineScriptsPreview(sectorId) {
@@ -2557,7 +2761,21 @@ function renderOfflineScriptsPreview(sectorId) {
       const [text, emo] = OFFLINE_SCRIPTS[sectorId][tier][ev];
       const card = document.createElement('div');
       card.className = 'p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-1';
-      card.innerHTML = `<div class="flex justify-between font-mono text-xs"><span class="text-orange-300">Tier ${tier} · ${ev}</span><span class="text-slate-300">${EMOTION_LABELS[emo] || emo}</span></div><p class="text-slate-100 font-serif text-sm leading-relaxed">${text}</p>`;
+      const head = document.createElement('div');
+      head.className = 'flex justify-between font-mono text-xs';
+      const leftSpan = document.createElement('span');
+      leftSpan.className = 'text-orange-300';
+      leftSpan.textContent = `Tier ${tier} · ${ev}`;
+      const rightSpan = document.createElement('span');
+      rightSpan.className = 'text-slate-300';
+      rightSpan.textContent = EMOTION_LABELS[emo] || emo;
+      head.appendChild(leftSpan);
+      head.appendChild(rightSpan);
+      const bodyP = document.createElement('p');
+      bodyP.className = 'text-slate-100 font-serif text-sm leading-relaxed';
+      bodyP.textContent = text;
+      card.appendChild(head);
+      card.appendChild(bodyP);
       grid.appendChild(card);
     });
   });
@@ -3596,6 +3814,7 @@ window.addEventListener('DOMContentLoaded', () => {
           db.session.adminFailCount = 0;
           db.session.lockedUntil = 0;
           db.session.studentUuid = data.student_uuid;
+          if (data.csrf_token) db.session.csrfToken = data.csrf_token;
           await bootstrapFromDatabase();
           saveState(); updateAuthBadges(); closeModal('modalAuth');
           renderAdminDashboard(); openModal('modalAdminDash');
@@ -3619,18 +3838,28 @@ window.addEventListener('DOMContentLoaded', () => {
   });
 
   function switchAdminTab(tab) {
-    const tabs = { analytics: ['tabAdminAnalytics', 'panelAdminAnalytics'], levels: ['tabAdminLevels', 'panelAdminLevels'], scripts: ['tabAdminScripts', 'panelAdminScripts'] };
+    const tabs = {
+      analytics: ['tabAdminAnalytics', 'panelAdminAnalytics'],
+      levels: ['tabAdminLevels', 'panelAdminLevels'],
+      scripts: ['tabAdminScripts', 'panelAdminScripts'],
+      stories: ['tabAdminStories', 'panelAdminStories']
+    };
     Object.entries(tabs).forEach(([k, [tId, pId]]) => {
       const active = k === tab;
-      document.getElementById(tId).className = active ? 'min-h-[44px] py-3 border-b-2 border-amber-500 text-amber-300 font-bold transition' : 'min-h-[44px] py-3 border-b-2 border-transparent text-slate-300 hover:text-white transition';
-      document.getElementById(pId).classList.toggle('hidden', !active);
+      const tEl = document.getElementById(tId);
+      const pEl = document.getElementById(pId);
+      if (tEl) tEl.className = active ? 'min-h-[44px] py-3 border-b-2 border-amber-500 text-amber-300 font-bold transition' : 'min-h-[44px] py-3 border-b-2 border-transparent text-slate-300 hover:text-white transition';
+      if (pEl) pEl.classList.toggle('hidden', !active);
     });
     if (tab === 'levels') renderAdminLevels();
     if (tab === 'scripts') renderAdminScripts();
+    if (tab === 'stories' && typeof renderAdminStories === 'function') renderAdminStories();
   }
   document.getElementById('tabAdminAnalytics').addEventListener('click', () => switchAdminTab('analytics'));
   document.getElementById('tabAdminLevels').addEventListener('click', () => switchAdminTab('levels'));
   document.getElementById('tabAdminScripts').addEventListener('click', () => switchAdminTab('scripts'));
+  const tabStoriesBtn = document.getElementById('tabAdminStories');
+  if (tabStoriesBtn) tabStoriesBtn.addEventListener('click', () => switchAdminTab('stories'));
   document.getElementById('btnVerify24Scripts').addEventListener('click', () => { renderAdminScripts(); showToast('已完成 24 條劇本完整性校驗', 'success'); });
   document.getElementById('btnAdminStep1').addEventListener('click', () => {
     document.getElementById('adminStep1Fields').classList.remove('hidden');
@@ -3751,3 +3980,569 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   });
 });
+
+/* =========================================================================
+ * 10. V3.1 GAL GAME STORY PLAYER & STORY CMS ADMIN UI
+ * ========================================================================= */
+const STORY_SPEAKERS = {
+  farm: { name: '蘇曉', role: '生態農場數據員', svgSector: 'farm' },
+  market: { name: '夏海', role: '海濱咖啡廳店長', svgSector: 'market' },
+  admin: { name: '林靜', role: '鎮公所秘書長', svgSector: 'admin' },
+  industrial: { name: '鐵嵐', role: '水電廠技師', svgSector: 'industrial' },
+  npc_bean: { name: '小豆', role: '見習報時員 (10歲)', svgSector: 'admin' },
+  npc_chan: { name: '陳伯', role: '退休雜貨舖老闆', svgSector: 'common' },
+  npc_fu: { name: '阿福叔', role: '資深老農夫', svgSector: 'farm' },
+  npc_keung: { name: '水產強哥', role: '漁獲批發商', svgSector: 'market' },
+  npc_zhou: { name: '周師傅', role: '退休老電工', svgSector: 'industrial' },
+  source_0: { name: 'Source-0 OS', role: '1978 核心主機', svgSector: 'common' },
+  narrator: { name: '旁白', role: '源泉鎮記事', svgSector: 'common' },
+  player: { name: '你 (臨時管理員)', role: '系統工程師', svgSector: 'common' }
+};
+
+const DEFAULT_STORY_NODES = [
+  {
+    node_code: 'ch1_bus_prologue',
+    story_code: 'source_town_v5',
+    chapter: 1,
+    sector_id: 'common',
+    event_type: 'prologue',
+    title: '巴士站的重逢與 Source-0 警報',
+    sort_order: 10,
+    is_active: true,
+    scene: { scene_code: 'bus_stop_dusk', location_name: '源泉鎮 · 長途巴士站', time_of_day: 'dusk' },
+    dialogues: [
+      { line_id: 'L1', speaker_id: 'narrator', emotion: 'neutral', text: '黃昏把源泉鎮染成橘紅與深紫，手機訊號格在踏下巴士的瞬間歸零。' },
+      { line_id: 'L2', speaker_id: 'npc_chan', emotion: 'neutral', text: '返嚟啦細路！大城市做電腦做到面青青，返到源泉鎮就啱晒——咦，鎮公所個警報燈點解無端端閃紅光？' },
+      { line_id: 'L3', speaker_id: 'source_0', emotion: 'neutral', text: '偵測到管理員權限吻合……1978 隔離計時器已屆滿，四大基建導管同步異常，請立即進行除錯。' }
+    ],
+    choices: [
+      { choice_code: 'go_square', label: '跟陳伯前往鎮公所紀念廣場', next_node_code: 'ch1_bell_100_trigger', affection_delta: null }
+    ]
+  },
+  {
+    node_code: 'ch1_bell_100_trigger',
+    story_code: 'source_town_v5',
+    chapter: 1,
+    sector_id: 'common',
+    event_type: 'npc_trigger',
+    title: '第 100 下鐘聲與 1978 銅鑰匙',
+    sort_order: 20,
+    is_active: true,
+    scene: { scene_code: 'town_square_dusk', location_name: '源泉鎮 · 鎮公所前紀念廣場', time_of_day: 'dusk' },
+    dialogues: [
+      { line_id: 'L1', speaker_id: 'npc_bean', emotion: 'neutral', text: '大哥哥！你剛剛聽到嗎？大鐘樓剛才敲了整整一百下，比平常多了一聲！' },
+      { line_id: 'L2', speaker_id: 'npc_chan', emotion: 'neutral', text: '鎮上大人都唔記得原因……但 1978 年圖靈博士上巴士前將呢把銅鑰匙交畀我，話四十八年後會有返鄉工程師嚟解開。' }
+    ],
+    choices: [
+      { choice_code: 'inspect_farm', label: '先去生態農場幫蘇曉檢查乾旱警報', next_node_code: 'ch2_farm_care', affection_delta: { sector_id: 'farm', delta: 5 } },
+      { choice_code: 'jump_truth', label: '檢視 1978 核心真相預覽（第四章）', next_node_code: 'ch4_truth_1978_convergence', affection_delta: null }
+    ]
+  },
+  {
+    node_code: 'ch2_farm_care',
+    story_code: 'source_town_v5',
+    chapter: 2,
+    sector_id: 'farm',
+    event_type: 'care',
+    title: '溫室裡的熱薑茶與微氣候異常',
+    sort_order: 30,
+    is_active: true,
+    scene: { scene_code: 'farm_greenhouse', location_name: '生態農場 · 第 2 號溫室', time_of_day: 'night' },
+    dialogues: [
+      { line_id: 'L1', speaker_id: 'farm', emotion: 'helpful_smile', text: '喂，成晚對住個終端機唔飲水會中暑㗎！呢杯熱薑茶同哈密瓜放你隔離，唔准將大城市嘅 Burnout 帶返嚟。' },
+      { line_id: 'L2', speaker_id: 'farm', emotion: 'anxious_point', text: '不過講真……我昨晚跑完圖靈博士留低嘅微氣候模型，佢預測出一個好唔合理嘅四十八年災害週期，Source-0 係咪收埋咗啲嘢？' }
+    ],
+    choices: [
+      { choice_code: 'to_truth_from_farm', label: '帶住這份微氣候數據前往核心機房', next_node_code: 'ch4_truth_1978_convergence', affection_delta: { sector_id: 'farm', delta: 5 } }
+    ]
+  },
+  {
+    node_code: 'ch4_truth_1978_convergence',
+    story_code: 'source_town_v5',
+    chapter: 4,
+    sector_id: 'common',
+    event_type: 'truth_1978',
+    title: '《1978 核心真相篇》孤島隔離協議',
+    sort_order: 40,
+    is_active: true,
+    scene: { scene_code: 'source0_core_room', location_name: '鎮公所地底 · Source-0 核心機房', time_of_day: 'midnight' },
+    dialogues: [
+      { line_id: 'L1', speaker_id: 'admin', emotion: 'strict_nod', text: '四份 1978 年密鑰已經透過 Java 權限驗證解封。原來當年並非系統故障，而是外部商業演算法試圖強制抹除小鎮的容錯空間。' },
+      { line_id: 'L2', speaker_id: 'industrial', emotion: 'stoic_nod', text: '周師傅講得啱，圖靈博士當年親手焊接保護迴路切斷外網，係為咗用 48 年本地循環保護源泉鎮。' },
+      { line_id: 'L3', speaker_id: 'source_0', emotion: 'neutral', text: 'Warning: The town is not a machine. Do not optimize humanity away.' }
+    ],
+    choices: []
+  }
+];
+
+let storyNodesState = JSON.parse(JSON.stringify(DEFAULT_STORY_NODES));
+const storyPlayerState = {
+  activeNodeCode: 'ch1_bus_prologue',
+  lineIndex: 0,
+  typewriterTimer: null,
+  isTyping: false,
+  collectedEvidences: new Set(),
+  flags: new Set()
+};
+let cmsEditingNodeCode = null;
+
+function updateStoryEvidenceBadges() {
+  const count = storyPlayerState.collectedEvidences.size;
+  const tEl = document.getElementById('titleEvidenceCount');
+  const mEl = document.getElementById('storyEvidenceBadge');
+  if (tEl) tEl.textContent = `證據 ${count}/4`;
+  if (mEl) mEl.textContent = `1978 證據 ${count}/4`;
+}
+
+function renderStoryNodeStrip() {
+  const strip = document.getElementById('storyNodeListStrip');
+  if (!strip) return;
+  strip.innerHTML = '';
+  storyNodesState.filter(n => n.is_active !== false).forEach(node => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    const isCurrent = node.node_code === storyPlayerState.activeNodeCode;
+    btn.className = isCurrent
+      ? 'px-2 py-0.5 rounded-lg bg-orange-600 text-white font-mono text-[11px] font-bold'
+      : 'px-2 py-0.5 rounded-lg bg-slate-950/80 hover:bg-slate-800 border border-slate-700 text-slate-300 font-mono text-[11px]';
+    btn.textContent = `Ch.${node.chapter} ${node.title.slice(0, 8)}`;
+    btn.addEventListener('click', () => playStoryNode(node.node_code));
+    strip.appendChild(btn);
+  });
+}
+
+function renderStoryLine(instant = false) {
+  const node = storyNodesState.find(n => n.node_code === storyPlayerState.activeNodeCode) || storyNodesState[0];
+  if (!node || !node.dialogues || node.dialogues.length === 0) return;
+
+  const lines = node.dialogues;
+  const idx = Math.max(0, Math.min(storyPlayerState.lineIndex, lines.length - 1));
+  storyPlayerState.lineIndex = idx;
+  const line = lines[idx];
+
+  const sp = STORY_SPEAKERS[line.speaker_id] || { name: line.speaker_id, svgSector: 'common' };
+  document.getElementById('storySpeakerName').textContent = sp.name;
+  const emoText = line.emotion === 'neutral' ? '😐 平靜' : (EMOTION_LABELS[line.emotion] || line.emotion);
+  document.getElementById('storyEmotionBadge').textContent = emoText;
+
+  const avatarEl = document.getElementById('storySpeakerAvatar');
+  if (SECTORS[sp.svgSector] && SECTORS[sp.svgSector].svg) {
+    avatarEl.innerHTML = SECTORS[sp.svgSector].svg;
+  } else {
+    avatarEl.innerHTML = '<svg viewBox="0 0 100 100" class="w-full h-full fill-current text-orange-300"><circle cx="50" cy="36" r="20" opacity="0.9"/><path d="M22 88 C22 65, 35 58, 50 58 C65 58, 78 65, 78 88 Z" opacity="0.8"/></svg>';
+  }
+
+  document.getElementById('storyLineProgress').textContent = `對話 ${idx + 1} / ${lines.length}`;
+  document.getElementById('btnStoryPrevLine').disabled = idx === 0;
+
+  const box = document.getElementById('storyDialogueBox');
+  if (storyPlayerState.typewriterTimer) {
+    clearInterval(storyPlayerState.typewriterTimer);
+    storyPlayerState.typewriterTimer = null;
+  }
+
+  const fullText = String(line.text || '');
+  const reduceMotion = document.body.classList.contains('reduce-motion') || instant;
+  if (reduceMotion) {
+    box.textContent = fullText;
+    storyPlayerState.isTyping = false;
+  } else {
+    box.textContent = '';
+    storyPlayerState.isTyping = true;
+    let pos = 0;
+    storyPlayerState.typewriterTimer = setInterval(() => {
+      pos += 2;
+      box.textContent = fullText.slice(0, pos);
+      if (pos >= fullText.length) {
+        clearInterval(storyPlayerState.typewriterTimer);
+        storyPlayerState.typewriterTimer = null;
+        storyPlayerState.isTyping = false;
+      }
+    }, 22);
+  }
+
+  const choicesBox = document.getElementById('storyChoicesBox');
+  choicesBox.innerHTML = '';
+  const isLastLine = idx === lines.length - 1;
+  const choices = Array.isArray(node.choices) ? node.choices : [];
+  if (isLastLine && choices.length > 0) {
+    choicesBox.classList.remove('hidden');
+    choices.slice(0, 4).forEach(ch => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'min-h-[42px] px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-orange-950/80 border border-orange-500/50 text-left text-xs font-mono text-orange-200 transition';
+      btn.textContent = `▸ ${ch.label}`;
+      btn.addEventListener('click', () => {
+        if (ch.next_node_code) {
+          playStoryNode(ch.next_node_code);
+        } else {
+          closeModal('modalStoryPlayer');
+        }
+      });
+      choicesBox.appendChild(btn);
+    });
+    document.getElementById('btnStoryNextLine').textContent = '請選擇分支';
+    document.getElementById('btnStoryNextLine').disabled = true;
+  } else {
+    choicesBox.classList.add('hidden');
+    document.getElementById('btnStoryNextLine').disabled = false;
+    document.getElementById('btnStoryNextLine').textContent = isLastLine ? '完成章節 ✓' : '繼續 →';
+  }
+}
+
+function playStoryNode(nodeCode) {
+  const node = storyNodesState.find(n => n.node_code === nodeCode) || storyNodesState[0];
+  if (!node) return;
+  storyPlayerState.activeNodeCode = node.node_code;
+  storyPlayerState.lineIndex = 0;
+  document.getElementById('storyChapterBadge').textContent = `CH.${node.chapter} · ${node.event_type}`;
+  document.getElementById('storyPlayerTitle').textContent = node.title;
+  const tod = node.scene?.time_of_day || 'dusk';
+  document.getElementById('storyPlayerLocation').textContent = `${node.scene?.location_name || '源泉鎮'} (${tod})`;
+  const stageEl = document.getElementById('storyStageBg');
+  if (stageEl) {
+    stageEl.className = `relative flex-1 min-h-[220px] sm:min-h-[260px] story-sky-${tod} p-5 flex flex-col justify-end overflow-hidden transition-colors duration-500`;
+  }
+  updateStoryEvidenceBadges();
+  renderStoryNodeStrip();
+  renderStoryLine(false);
+  openModal('modalStoryPlayer');
+}
+
+function renderAdminStories() {
+  const listEl = document.getElementById('cmsNodeList');
+  if (!listEl) return;
+  const chFilter = document.getElementById('cmsFilterChapter')?.value || 'ALL';
+  const secFilter = document.getElementById('cmsFilterSector')?.value || 'ALL';
+
+  const filtered = storyNodesState
+    .filter(n => (chFilter === 'ALL' || String(n.chapter) === chFilter) && (secFilter === 'ALL' || n.sector_id === secFilter))
+    .sort((a, b) => (a.chapter - b.chapter) || ((a.sort_order || 0) - (b.sort_order || 0)));
+
+  listEl.innerHTML = '';
+  filtered.forEach(node => {
+    const card = document.createElement('button');
+    card.type = 'button';
+    const selected = node.node_code === cmsEditingNodeCode;
+    card.className = selected
+      ? 'w-full text-left p-3 rounded-xl bg-amber-950/60 border border-amber-500 space-y-1 transition'
+      : 'w-full text-left p-3 rounded-xl bg-slate-950 hover:bg-slate-900 border border-slate-800 space-y-1 transition';
+
+    const top = document.createElement('div');
+    top.className = 'flex items-center justify-between gap-2';
+    const badge = document.createElement('span');
+    badge.className = 'text-[11px] font-bold text-orange-300';
+    badge.textContent = `Ch.${node.chapter} · ${node.sector_id} · ${node.event_type}`;
+    const status = document.createElement('span');
+    status.className = node.is_active !== false ? 'text-[10px] text-emerald-300' : 'text-[10px] text-slate-500';
+    status.textContent = node.is_active !== false ? '● 啟用' : '○ 停用';
+    top.appendChild(badge);
+    top.appendChild(status);
+
+    const titleDiv = document.createElement('div');
+    titleDiv.className = 'text-xs font-bold text-white truncate';
+    titleDiv.textContent = node.title;
+
+    const codeDiv = document.createElement('div');
+    codeDiv.className = 'text-[10px] text-slate-400';
+    codeDiv.textContent = `${node.node_code} (${(node.dialogues || []).length} 句)`;
+
+    card.appendChild(top);
+    card.appendChild(titleDiv);
+    card.appendChild(codeDiv);
+    card.addEventListener('click', () => loadStoryNodeIntoEditor(node.node_code));
+    listEl.appendChild(card);
+  });
+
+  if (!cmsEditingNodeCode && filtered.length > 0) {
+    loadStoryNodeIntoEditor(filtered[0].node_code);
+  }
+}
+
+function addCmsDialogueRow(line = { speaker_id: 'farm', emotion: 'neutral', text: '' }) {
+  const box = document.getElementById('cmsDialogueLines');
+  if (!box) return;
+  const row = document.createElement('div');
+  row.className = 'cms-dialogue-row p-2 rounded-xl bg-slate-900 border border-slate-800 space-y-1.5';
+
+  const top = document.createElement('div');
+  top.className = 'flex items-center gap-1.5';
+
+  const spSel = document.createElement('select');
+  spSel.className = 'cms-line-speaker min-h-[32px] px-2 rounded-lg bg-slate-950 border border-slate-700 text-white text-[11px]';
+  Object.entries(STORY_SPEAKERS).forEach(([id, info]) => {
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = info.name;
+    if (id === line.speaker_id) opt.selected = true;
+    spSel.appendChild(opt);
+  });
+
+  const emoSel = document.createElement('select');
+  emoSel.className = 'cms-line-emotion flex-1 min-h-[32px] px-2 rounded-lg bg-slate-950 border border-slate-700 text-white text-[11px]';
+  const neutralOpt = document.createElement('option');
+  neutralOpt.value = 'neutral';
+  neutralOpt.textContent = 'neutral (平靜)';
+  emoSel.appendChild(neutralOpt);
+  Object.entries(EMOTION_LABELS).forEach(([k, label]) => {
+    const opt = document.createElement('option');
+    opt.value = k;
+    opt.textContent = `${k} (${label})`;
+    if (k === line.emotion) opt.selected = true;
+    emoSel.appendChild(opt);
+  });
+
+  const delBtn = document.createElement('button');
+  delBtn.type = 'button';
+  delBtn.className = 'min-h-[32px] px-2 rounded-lg bg-rose-950 text-rose-300 text-[11px]';
+  delBtn.textContent = '✕';
+  delBtn.addEventListener('click', () => row.remove());
+
+  top.appendChild(spSel);
+  top.appendChild(emoSel);
+  top.appendChild(delBtn);
+
+  const txt = document.createElement('textarea');
+  txt.rows = 2;
+  txt.className = 'cms-line-text w-full p-2 rounded-lg bg-slate-950 border border-slate-700 text-white text-xs';
+  txt.placeholder = '輸入角色對話台詞...';
+  txt.value = line.text || '';
+
+  row.appendChild(top);
+  row.appendChild(txt);
+  box.appendChild(row);
+}
+
+function addCmsChoiceRow(choice = { choice_code: '', label: '', next_node_code: '' }) {
+  const box = document.getElementById('cmsChoicesList');
+  if (!box) return;
+  if (box.querySelectorAll('.cms-choice-row').length >= 4) {
+    showToast('單一節點最多支援 4 個選項分支', 'info');
+    return;
+  }
+  const row = document.createElement('div');
+  row.className = 'cms-choice-row grid grid-cols-12 gap-1.5 items-center p-2 rounded-xl bg-slate-900 border border-slate-800';
+
+  const lblInp = document.createElement('input');
+  lblInp.type = 'text';
+  lblInp.className = 'cms-choice-label col-span-6 min-h-[32px] px-2 rounded-lg bg-slate-950 border border-slate-700 text-white text-[11px]';
+  lblInp.placeholder = '選項顯示文字';
+  lblInp.value = choice.label || '';
+
+  const nextInp = document.createElement('input');
+  nextInp.type = 'text';
+  nextInp.className = 'cms-choice-next col-span-5 min-h-[32px] px-2 rounded-lg bg-slate-950 border border-slate-700 text-white text-[11px]';
+  nextInp.placeholder = '跳轉 node_code';
+  nextInp.value = choice.next_node_code || '';
+
+  const delBtn = document.createElement('button');
+  delBtn.type = 'button';
+  delBtn.className = 'col-span-1 min-h-[32px] rounded-lg bg-rose-950 text-rose-300 text-[11px]';
+  delBtn.textContent = '✕';
+  delBtn.addEventListener('click', () => row.remove());
+
+  row.appendChild(lblInp);
+  row.appendChild(nextInp);
+  row.appendChild(delBtn);
+  box.appendChild(row);
+}
+
+function loadStoryNodeIntoEditor(nodeCode) {
+  const node = storyNodesState.find(n => n.node_code === nodeCode);
+  if (!node) return;
+  cmsEditingNodeCode = node.node_code;
+  document.getElementById('cmsEditorHeading').textContent = `編輯故事節點：${node.node_code}`;
+  document.getElementById('cmsNodeCode').value = node.node_code;
+  document.getElementById('cmsNodeTitle').value = node.title;
+  document.getElementById('cmsChapter').value = String(node.chapter);
+  document.getElementById('cmsSector').value = node.sector_id;
+  document.getElementById('cmsEventType').value = node.event_type;
+  document.getElementById('cmsSortOrder').value = String(node.sort_order || 10);
+  document.getElementById('cmsSceneLocation').value = node.scene?.location_name || '';
+  document.getElementById('cmsTimeOfDay').value = node.scene?.time_of_day || 'dusk';
+  document.getElementById('cmsIsActive').checked = node.is_active !== false;
+
+  const dBox = document.getElementById('cmsDialogueLines');
+  dBox.innerHTML = '';
+  (node.dialogues || []).forEach(l => addCmsDialogueRow(l));
+
+  const cBox = document.getElementById('cmsChoicesList');
+  cBox.innerHTML = '';
+  (node.choices || []).forEach(c => addCmsChoiceRow(c));
+
+  renderAdminStories();
+}
+
+function saveCmsStoryNode() {
+  const code = document.getElementById('cmsNodeCode').value.trim();
+  const title = document.getElementById('cmsNodeTitle').value.trim();
+  if (!/^[a-z][a-z0-9_]{2,63}$/.test(code)) {
+    document.getElementById('cmsValidationBadge').textContent = 'node_code 格式錯誤';
+    showToast('node_code 必須為小寫英文/數字/底線 (snake_case)', 'error');
+    return;
+  }
+  if (!title) {
+    showToast('請輸入節點標題', 'error');
+    return;
+  }
+
+  const dialogues = [];
+  document.querySelectorAll('#cmsDialogueLines .cms-dialogue-row').forEach((row, idx) => {
+    const text = row.querySelector('.cms-line-text').value.trim();
+    if (!text) return;
+    dialogues.push({
+      line_id: `L${idx + 1}`,
+      speaker_id: row.querySelector('.cms-line-speaker').value,
+      emotion: row.querySelector('.cms-line-emotion').value,
+      text
+    });
+  });
+  if (dialogues.length === 0) {
+    showToast('至少需要 1 句對話台詞', 'error');
+    return;
+  }
+
+  const choices = [];
+  document.querySelectorAll('#cmsChoicesList .cms-choice-row').forEach((row, idx) => {
+    const label = row.querySelector('.cms-choice-label').value.trim();
+    const nextCode = row.querySelector('.cms-choice-next').value.trim();
+    if (!label) return;
+    choices.push({
+      choice_code: `${code}_c${idx + 1}`,
+      label,
+      next_node_code: nextCode || null,
+      affection_delta: null
+    });
+  });
+
+  const updated = {
+    node_code: code,
+    story_code: 'source_town_v5',
+    chapter: Number(document.getElementById('cmsChapter').value) || 1,
+    sector_id: document.getElementById('cmsSector').value,
+    event_type: document.getElementById('cmsEventType').value,
+    title,
+    sort_order: Number(document.getElementById('cmsSortOrder').value) || 10,
+    is_active: document.getElementById('cmsIsActive').checked,
+    scene: {
+      scene_code: `${code}_scene`,
+      location_name: document.getElementById('cmsSceneLocation').value.trim() || '源泉鎮',
+      time_of_day: document.getElementById('cmsTimeOfDay').value
+    },
+    dialogues,
+    choices
+  };
+
+  const existingIdx = storyNodesState.findIndex(n => n.node_code === code);
+  if (existingIdx >= 0) {
+    storyNodesState[existingIdx] = updated;
+  } else {
+    storyNodesState.push(updated);
+  }
+  cmsEditingNodeCode = code;
+  document.getElementById('cmsValidationBadge').textContent = 'Schema Valid ✓';
+  renderAdminStories();
+  showToast(`已儲存故事節點「${title}」（可在模擬器立即試跑）`, 'success');
+}
+
+(function bindStoryAndCmsEvents() {
+  const btnHub = document.getElementById('btnOpenStoryHub');
+  if (btnHub) btnHub.addEventListener('click', () => playStoryNode(storyPlayerState.activeNodeCode));
+
+  const dBox = document.getElementById('storyDialogueBox');
+  if (dBox) dBox.addEventListener('click', () => {
+    if (storyPlayerState.isTyping) renderStoryLine(true);
+  });
+
+  const btnPrev = document.getElementById('btnStoryPrevLine');
+  if (btnPrev) btnPrev.addEventListener('click', () => {
+    if (storyPlayerState.lineIndex > 0) {
+      storyPlayerState.lineIndex--;
+      renderStoryLine(false);
+    }
+  });
+
+  const btnNext = document.getElementById('btnStoryNextLine');
+  if (btnNext) btnNext.addEventListener('click', () => {
+    if (storyPlayerState.isTyping) {
+      renderStoryLine(true);
+      return;
+    }
+    const node = storyNodesState.find(n => n.node_code === storyPlayerState.activeNodeCode);
+    if (!node) return;
+    if (storyPlayerState.lineIndex < node.dialogues.length - 1) {
+      storyPlayerState.lineIndex++;
+      renderStoryLine(false);
+    } else {
+      closeModal('modalStoryPlayer');
+      showToast(`已完成劇情「${node.title}」`, 'success');
+    }
+  });
+
+  const fCh = document.getElementById('cmsFilterChapter');
+  const fSec = document.getElementById('cmsFilterSector');
+  if (fCh) fCh.addEventListener('change', renderAdminStories);
+  if (fSec) fSec.addEventListener('change', renderAdminStories);
+
+  const btnAddLine = document.getElementById('btnCmsAddLine');
+  if (btnAddLine) btnAddLine.addEventListener('click', () => addCmsDialogueRow());
+
+  const btnAddChoice = document.getElementById('btnCmsAddChoice');
+  if (btnAddChoice) btnAddChoice.addEventListener('click', () => addCmsChoiceRow());
+
+  const btnNewNode = document.getElementById('btnCmsNewNode');
+  if (btnNewNode) btnNewNode.addEventListener('click', () => {
+    cmsEditingNodeCode = null;
+    const newCode = `custom_story_${Date.now().toString().slice(-5)}`;
+    document.getElementById('cmsEditorHeading').textContent = '新增故事節點';
+    document.getElementById('cmsNodeCode').value = newCode;
+    document.getElementById('cmsNodeTitle').value = '自訂源泉鎮支線事件';
+    document.getElementById('cmsChapter').value = '2';
+    document.getElementById('cmsSector').value = 'farm';
+    document.getElementById('cmsEventType').value = 'care';
+    document.getElementById('cmsSortOrder').value = '99';
+    document.getElementById('cmsSceneLocation').value = '源泉鎮 · 自訂場景';
+    document.getElementById('cmsTimeOfDay').value = 'afternoon';
+    document.getElementById('cmsIsActive').checked = true;
+    document.getElementById('cmsDialogueLines').innerHTML = '';
+    addCmsDialogueRow({ speaker_id: 'farm', emotion: 'happy_wink', text: '' });
+    document.getElementById('cmsChoicesList').innerHTML = '';
+  });
+
+  const btnSave = document.getElementById('btnCmsSaveNode');
+  if (btnSave) btnSave.addEventListener('click', saveCmsStoryNode);
+
+  const btnPreview = document.getElementById('btnCmsPreviewFlow');
+  if (btnPreview) btnPreview.addEventListener('click', () => {
+    const target = cmsEditingNodeCode || storyNodesState[0]?.node_code;
+    if (target) playStoryNode(target);
+  });
+
+  const btnDel = document.getElementById('btnCmsDeleteNode');
+  if (btnDel) btnDel.addEventListener('click', () => {
+    if (!cmsEditingNodeCode) return;
+    const target = storyNodesState.find(n => n.node_code === cmsEditingNodeCode);
+    if (!target) return;
+    target.is_active = !target.is_active;
+    renderAdminStories();
+    showToast(`已將「${target.title}」設為${target.is_active ? '啟用' : '停用'}`, 'info');
+  });
+})();
+
+(function bindChatModalUxHelpers() {
+  const inp = document.getElementById('chatInputField');
+  const counter = document.getElementById('chatCharCounter');
+  if (inp && counter) {
+    inp.addEventListener('input', () => {
+      counter.textContent = `${inp.value.length} / 4000`;
+    });
+  }
+  const btnClear = document.getElementById('btnClearChatHistory');
+  if (btnClear) {
+    btnClear.addEventListener('click', () => {
+      chatHistoryBySector[activeChatSector] = [];
+      openCharacterChatModal(activeChatSector);
+      showToast('已清空目前角色的短期對話紀錄', 'info');
+    });
+  }
+})();

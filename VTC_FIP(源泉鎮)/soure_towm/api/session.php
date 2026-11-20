@@ -39,6 +39,7 @@ try {
             'ok' => true,
             'role' => $existing['role'],
             'student_uuid' => $existing['subject_id'],
+            'csrf_token' => computeCsrfToken($existing),
         ]);
     }
 
@@ -57,6 +58,11 @@ try {
         'ok' => true,
         'role' => 'student',
         'student_uuid' => $studentUuid,
+        'csrf_token' => computeCsrfToken([
+            'session_id' => $sessionId,
+            'subject_id' => $studentUuid,
+            'csrf_secret' => $csrfSecret,
+        ]),
     ]);
 } catch (Throwable $e) {
     sendJson(['ok' => false, 'error' => 'DB_SESSION_ERROR'], 500);

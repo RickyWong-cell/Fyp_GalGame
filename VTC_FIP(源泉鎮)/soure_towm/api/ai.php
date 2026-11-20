@@ -4,6 +4,7 @@
 declare(strict_types=1);
 
 use SourceTown\AI\AiException;
+use SourceTown\AI\CharacterContextBuilder;
 use SourceTown\AI\Support\TokenEstimator;
 
 require_once __DIR__ . '/db.php';
@@ -18,26 +19,40 @@ function aiRequestId(): string
 
 function aiAssertSameOrigin(): void
 {
-    $origin = (string)($_SERVER['HTTP_ORIGIN'] ?? '');
-    if ($origin !== '') {
-        $originParts = parse_url($origin);
-        $hostHeader = (string)($_SERVER['HTTP_HOST'] ?? '');
-        $requestScheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-        $hostParts = parse_url($requestScheme . '://' . $hostHeader);
-
-        $originHost = strtolower((string)($originParts['host'] ?? ''));
-        $requestHost = strtolower((string)($hostParts['host'] ?? ''));
-        $originPort = (int)($originParts['port'] ?? (($originParts['scheme'] ?? '') === 'https' ? 443 : 80));
-        $requestPort = (int)($hostParts['port'] ?? ($requestScheme === 'https' ? 443 : 80));
-
-        if ($originHost === '' || $requestHost === '' || $originHost !== $requestHost || $originPort !== $requestPort) {
-            throw new AiException('AI_ORIGIN_FORBIDDEN', '跨站 AI 請求已被拒絕', 403);
-        }
+    $fetchSite = strtolower(trim((string)($_SERVER['HTTP_SEC_FETCH_SITE'] ?? '')));
+    if ($fetchSite !== '' && !in_array($fetchSite, ['same-origin', 'none'], true)) {
+        throw new AiException('AI_ORIGIN_FORBIDDEN', '跨站 AI 請求已被拒絕 (Fetch Metadata)', 403);
     }
 
-    $fetchSite = strtolower((string)($_SERVER['HTTP_SEC_FETCH_SITE'] ?? ''));
-    if ($fetchSite !== '' && !in_array($fetchSite, ['same-origin', 'none'], true)) {
+    $origin = trim((string)($_SERVER['HTTP_ORIGIN'] ?? ''));
+    $referer = trim((string)($_SERVER['HTTP_REFERER'] ?? ''));
+    $sourceUrl = $origin !== '' ? $origin : $referer;
+
+    // 不可因缺少 Origin/Referer 就自動視為安全
+    if ($sourceUrl === '') {
+        throw new AiException('AI_ORIGIN_FORBIDDEN', '缺少來源驗證標頭 (Origin/Referer)', 403);
+    }
+
+    $originParts = parse_url($sourceUrl);
+    $hostHeader = (string)($_SERVER['HTTP_HOST'] ?? '');
+    $requestScheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $hostParts = parse_url($requestScheme . '://' . $hostHeader);
+
+    $originHost = strtolower((string)($originParts['host'] ?? ''));
+    $requestHost = strtolower((string)($hostParts['host'] ?? ''));
+    $originPort = (int)($originParts['port'] ?? (($originParts['scheme'] ?? '') === 'https' ? 443 : 80));
+    $requestPort = (int)($hostParts['port'] ?? ($requestScheme === 'https' ? 443 : 80));
+
+    if ($originHost === '' || $requestHost === '' || $originHost !== $requestHost || $originPort !== $requestPort) {
         throw new AiException('AI_ORIGIN_FORBIDDEN', '跨站 AI 請求已被拒絕', 403);
+    }
+}
+
+function aiAssertCsrf(array $session): void
+{
+    $provided = (string)($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+    if (!verifyCsrfToken($session, $provided)) {
+        throw new AiException('AI_CSRF_INVALID', 'CSRF 驗證失敗，請重新整理頁面後再試', 403);
     }
 }
 
@@ -223,12 +238,21 @@ $userMessage = '';
 
 try {
     aiAssertSameOrigin();
+    aiAssertCsrf($session);
     $runtime->config->assertReady();
     $runtime->assertStorageReady();
 
     $intentRaw = $body['intent'] ?? 'chat';
     $intent = is_string($intentRaw) ? trim($intentRaw) : '';
-    $route = $runtime->router->route($intent, $role);
+    $sectorRaw = $body['sector_id'] ?? '';
+    $sectorId = is_string($sectorRaw) ? trim($sectorRaw) : '';
+    $route = $runtime->router->route($intent, $role, ['sector_id' => $sectorId]);
+
+    $characterContext = null;
+    if ($route['intent'] === 'character_chat') {
+        $ctxBuilder = new CharacterContextBuilder($pdo);
+        $characterContext = $ctxBuilder->build($session, (string)$route['sector_id']);
+    }
 
     if (!isset($body['message']) || !is_string($body['message'])) {
         throw new AiException('AI_INPUT_INVALID', 'message 必須是字串', 400);
@@ -273,6 +297,7 @@ try {
     $result = $runtime->agents->run($route['agent_id'], $messages, [
         'request_id' => $requestId,
         'max_output_tokens' => $maxOutput,
+        'character_context' => $characterContext,
     ]);
 
     $usage = $result['usage'];
@@ -281,7 +306,8 @@ try {
         $reservation['date'],
         $reservation['reserved_tokens'],
         (int)$usage['prompt_tokens'],
-        (int)$usage['completion_tokens']
+        (int)$usage['completion_tokens'],
+        $reservation['reservation_id'] ?? null
     );
     $reservation = null;
 
@@ -305,25 +331,31 @@ try {
 
     $quota = $runtime->tokens->usage($subjectId);
 
+    $usageOut = $result['usage'];
+    $usageOut['input_tokens'] = (int)($usage['prompt_tokens'] ?? 0);
+    $usageOut['output_tokens'] = (int)($usage['completion_tokens'] ?? 0);
+
     sendJson([
         'ok' => true,
-        'phase' => 1,
+        'phase' => $route['intent'] === 'character_chat' ? 2 : 1,
+        'agent_id' => $result['agent_id'],
+        'sector_id' => $result['sector_id'] ?? $route['sector_id'],
         'reply' => $result['reply'],
-        'emotion' => null,
+        'emotion' => $result['emotion'] ?? null,
         'agent' => [
             'id' => $result['agent_id'],
             'name' => $result['agent_name'],
         ],
         'provider' => $result['provider'],
         'model' => $result['model'],
-        'usage' => $result['usage'],
+        'usage' => $usageOut,
         'quota' => $quota,
         'latency_ms' => (int)$result['latency_ms'],
         'request_id' => $requestId,
     ]);
 } catch (AiException $e) {
     if ($reservation !== null && isset($runtime->tokens)) {
-        $runtime->tokens->release($subjectId, $reservation['date'], $reservation['reserved_tokens']);
+        $runtime->tokens->release($subjectId, $reservation['date'], $reservation['reserved_tokens'], $reservation['reservation_id'] ?? null);
     }
 
     $runtime?->logger?->log([
@@ -359,7 +391,7 @@ try {
     sendJson($payload, $e->getHttpStatus());
 } catch (Throwable $e) {
     if ($reservation !== null && isset($runtime->tokens)) {
-        $runtime->tokens->release($subjectId, $reservation['date'], $reservation['reserved_tokens']);
+        $runtime->tokens->release($subjectId, $reservation['date'], $reservation['reserved_tokens'], $reservation['reservation_id'] ?? null);
     }
 
     $runtime?->logger?->log([

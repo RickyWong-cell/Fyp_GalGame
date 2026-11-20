@@ -181,6 +181,7 @@ try {
         'session' => [
             'role' => $role,
             'studentUuid' => $subjectId,
+            'csrfToken' => $sess ? computeCsrfToken($sess) : '',
         ],
         'dbLevels' => $dbLevels,
         'scripts' => $scriptsMap,

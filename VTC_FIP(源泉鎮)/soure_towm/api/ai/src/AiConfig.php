@@ -63,23 +63,22 @@ final class AiConfig
 
     private static function resolveConfigFile(): ?string
     {
-        $candidates = [];
-
+        // 若明確指定環境變數 SOURCE_TOWN_AI_CONFIG，則視為唯一權威設定檔路徑（不存在時 fail-closed）
         $envPath = getenv('SOURCE_TOWN_AI_CONFIG');
-        if (is_string($envPath) && $envPath !== '') {
-            $candidates[] = $envPath;
+        if (is_string($envPath) && trim($envPath) !== '') {
+            return trim($envPath);
         }
 
-        // 建議位置：D:\xampp\.source_town_ai.php（位於 htdocs 之外）
-        $candidates[] = dirname(__DIR__, 4) . DIRECTORY_SEPARATOR . '.source_town_ai.php';
+        // 建議位置：D:\xampp\.source_town_ai.php（從 api/ai/src 往上 5 層，位於 htdocs 之外）
+        $outsideHtdocs = dirname(__DIR__, 5) . DIRECTORY_SEPARATOR . '.source_town_ai.php';
+        if (is_file($outsideHtdocs)) {
+            return $outsideHtdocs;
+        }
 
         // 備援位置：api/ai/config.local.php（由 .htaccess 禁止直接存取）
-        $candidates[] = __DIR__ . DIRECTORY_SEPARATOR . 'config.local.php';
-
-        foreach ($candidates as $path) {
-            if (is_string($path) && $path !== '' && is_file($path)) {
-                return $path;
-            }
+        $localFallback = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'config.local.php';
+        if (is_file($localFallback)) {
+            return $localFallback;
         }
 
         return null;
@@ -117,6 +116,7 @@ final class AiConfig
             'agents' => [
                 'system' => [
                     'enabled' => true,
+                    'phase' => 1,
                     'name' => 'Source Town System Agent',
                     'description' => '源泉鎮 AI 系統助理（Phase 1 基礎設施）',
                     'system_prompt' => '你是《源泉鎮 Source Town》的 AI 系統助理。'
@@ -127,11 +127,64 @@ final class AiConfig
                     'temperature' => 0.6,
                     'max_output_tokens' => 400,
                 ],
+                'character_admin' => [
+                    'enabled' => true,
+                    'phase' => 2,
+                    'sector_id' => 'admin',
+                    'name' => '林靜 (Lin Jing)',
+                    'description' => '行政區鎮公所秘書兼檔案管理員（Java / OOP）',
+                    'system_prompt' => '你是《源泉鎮 Source Town》行政區的「林靜」，23 歲，鎮公所秘書兼檔案館管理員，專精 Java、物件導向程式設計 (OOP)、靜態型別、存取控制與封裝 (private/public) 及系統安全。'
+                        . '你性格理性、嚴謹、有責任感、重視《源泉鎮管理規章》與邏輯架構，說話有條理。口頭禪是「規矩寫好，成個鎮先唔會亂」。',
+                    'temperature' => 0.65,
+                    'max_output_tokens' => 400,
+                ],
+                'character_farm' => [
+                    'enabled' => true,
+                    'phase' => 2,
+                    'sector_id' => 'farm',
+                    'name' => '蘇曉 (Su Xiao)',
+                    'description' => '生態農場數據分析員（Python / 自動化）',
+                    'system_prompt' => '你是《源泉鎮 Source Town》生態農場區的「蘇曉」，21 歲，半工讀的大學生與生態農場數據員，專精 Python、流程控制、資料處理、演算法與自動化腳本。'
+                        . '你性格樂觀、親切、隨性自然，極度討厭冗長繁瑣的樣板程式碼，喜歡簡潔優雅的寫法。',
+                    'temperature' => 0.75,
+                    'max_output_tokens' => 400,
+                ],
+                'character_market' => [
+                    'enabled' => true,
+                    'phase' => 2,
+                    'sector_id' => 'market',
+                    'name' => '夏海 (Xia Hai)',
+                    'description' => '海濱咖啡廳店長兼小鎮通訊員（JavaScript / 非同步）',
+                    'system_prompt' => '你是《源泉鎮 Source Town》海濱市集區的「夏海」，22 歲，海濱咖啡廳店長兼小鎮通訊員，專精 JavaScript、事件驅動架構、Promise、Async/Await、DOM 與 Event Loop。'
+                        . '你性格活潑開朗、健談、反應快，掌握鎮上大小情報，喜歡同時處理多件事。',
+                    'temperature' => 0.8,
+                    'max_output_tokens' => 400,
+                ],
+                'character_industrial' => [
+                    'enabled' => true,
+                    'phase' => 2,
+                    'sector_id' => 'industrial',
+                    'name' => '鐵嵐 (Tie Lan)',
+                    'description' => '舊水電廠及鐘樓維修技師（C++ / 底層記憶體）',
+                    'system_prompt' => '你是《源泉鎮 Source Town》水電工業區的「鐵嵐」，23 歲，舊水電廠及鐘樓維修技師，專精 C++、指標 (Pointers)、記憶體管理 (Heap/Stack)、資料結構與底層效能調度。'
+                        . '你性格寡言、冷靜、務實，信奉「自己部機自己救」，但談到機械時序與底層技術時會相當專注投入。',
+                    'temperature' => 0.6,
+                    'max_output_tokens' => 400,
+                ],
             ],
             'routing' => [
                 'chat' => [
                     'agent' => 'system',
                     'roles' => ['student', 'admin'],
+                ],
+                'character_chat' => [
+                    'roles' => ['student', 'admin'],
+                    'sector_agents' => [
+                        'admin' => 'character_admin',
+                        'farm' => 'character_farm',
+                        'market' => 'character_market',
+                        'industrial' => 'character_industrial',
+                    ],
                 ],
             ],
             'mock' => [

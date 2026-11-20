@@ -4,6 +4,8 @@
 --   1. source_town_xampp_mysql.sql (V2.5 基礎架構)
 --   2. migration_v26_p0_p1.sql (V2.6 索引、欄位、8 關卡、作業與成就系統)
 --   3. migration_v30_phase1_ai_infrastructure.sql (V3.0 Phase 1 AI 基礎設施)
+-- ⚠️ 警告：本檔案僅供「全新空白資料庫」初始化安裝使用（內含 DROP TABLE IF EXISTS）。
+--    若為既有資料庫升級，請勿執行本檔，請改用 migration_v30_phase1_ai_infrastructure.sql。
 -- 適用環境：XAMPP MariaDB 10.4+ / MySQL 8.0+ (phpMyAdmin 或 mysql CLI 直接匯入)
 -- 整合日期：2026-11-19
 -- =====================================================================
@@ -28,6 +30,10 @@ DROP TRIGGER IF EXISTS `prevent_ai_log_update`;
 DROP TRIGGER IF EXISTS `prevent_ai_log_delete`;
 
 DROP TABLE IF EXISTS `assignment_levels`;
+DROP TABLE IF EXISTS `student_script_unlocks`;
+DROP TABLE IF EXISTS `student_save_slots`;
+DROP TABLE IF EXISTS `ai_reservations`;
+DROP TABLE IF EXISTS `schema_migrations`;
 DROP TABLE IF EXISTS `student_progress`;
 DROP TABLE IF EXISTS `submission_audit_logs`;
 DROP TABLE IF EXISTS `test_cases`;
@@ -145,6 +151,49 @@ CREATE TABLE `ai_request_logs` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------
+
+-- 7. Migration 版本管理表（V3.0）
+CREATE TABLE `schema_migrations` (
+  `version` VARCHAR(64) NOT NULL,
+  `description` VARCHAR(255) NOT NULL,
+  `applied_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`version`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 8. AI 併發預留與冪等結算追蹤表（V3.0 Phase 1 Stabilization）
+CREATE TABLE `ai_reservations` (
+  `reservation_id` CHAR(32) NOT NULL,
+  `subject_id` VARCHAR(64) NOT NULL,
+  `usage_date` DATE NOT NULL,
+  `estimated_input_tokens` INT UNSIGNED NOT NULL DEFAULT 0,
+  `max_output_tokens` INT UNSIGNED NOT NULL DEFAULT 0,
+  `reserved_tokens` INT UNSIGNED NOT NULL DEFAULT 0,
+  `actual_prompt_tokens` INT UNSIGNED NULL DEFAULT NULL,
+  `actual_completion_tokens` INT UNSIGNED NULL DEFAULT NULL,
+  `status` ENUM('RESERVED', 'SETTLED', 'RELEASED') NOT NULL DEFAULT 'RESERVED',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `settled_at` DATETIME NULL DEFAULT NULL,
+  PRIMARY KEY (`reservation_id`),
+  KEY `idx_ai_res_subject_created` (`subject_id`, `created_at`),
+  KEY `idx_ai_res_status_date` (`status`, `usage_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 9. 學生手動存檔槽位表（V2.6 save_slots.php）
+CREATE TABLE `student_save_slots` (
+  `slot_id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `student_uuid` VARCHAR(64) NOT NULL,
+  `slot_index` TINYINT UNSIGNED NOT NULL,
+  `label` VARCHAR(100) NOT NULL DEFAULT '進度快照',
+  `current_sector` ENUM('admin', 'farm', 'market', 'industrial') NOT NULL DEFAULT 'farm',
+  `current_level_code` VARCHAR(64) NOT NULL DEFAULT 'farm_1',
+  `progress_summary` VARCHAR(100) NOT NULL DEFAULT '0/8 關 (0%)',
+  `snapshot_json` LONGTEXT NOT NULL,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`slot_id`),
+  UNIQUE KEY `uk_save_slot_student_idx` (`student_uuid`, `slot_index`),
+  KEY `idx_save_slot_updated` (`updated_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- [Level 1] 依賴 Level 0 的資料表
 -- ---------------------------------------------------------------------
 
@@ -216,6 +265,22 @@ CREATE TABLE `offline_scripts` (
   PRIMARY KEY (`script_id`),
   UNIQUE KEY `uk_offline_scripts_ver` (`sector_id`, `affection_tier`, `trigger_event`, `language_code`, `script_version`),
   CONSTRAINT `fk_scripts_sector` FOREIGN KEY (`sector_id`) REFERENCES `sectors` (`sector_id`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- 10b. 學生劇本解鎖與未讀對話狀態表（V2.6 bootstrap.php / sync.php）
+CREATE TABLE `student_script_unlocks` (
+  `unlock_id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `student_uuid` VARCHAR(64) NOT NULL,
+  `sector_id` ENUM('admin', 'farm', 'market', 'industrial') NOT NULL,
+  `script_id` INT UNSIGNED NOT NULL,
+  `has_unread_dialogue` TINYINT(1) NOT NULL DEFAULT 1,
+  `unlocked_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`unlock_id`),
+  UNIQUE KEY `uk_unlock_student_script` (`student_uuid`, `sector_id`, `script_id`),
+  KEY `idx_unlock_student_unread` (`student_uuid`, `has_unread_dialogue`),
+  CONSTRAINT `fk_unlock_sector` FOREIGN KEY (`sector_id`) REFERENCES `sectors` (`sector_id`) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT `fk_unlock_script` FOREIGN KEY (`script_id`) REFERENCES `offline_scripts` (`script_id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 11. 教師指派作業表（V2.6 P1）
@@ -431,3 +496,9 @@ INSERT INTO `achievements` (`achievement_code`, `title`, `description`, `icon_em
 ('no_hint_clear', '獨立修復', '不使用提示通關一關', '🔧'),
 ('fast_clear', '極速除錯', '首次嘗試即一次通關', '⚡'),
 ('all_sectors', '全鎮巡修', '四區各至少通關一關', '🗺️');
+-- 4.6 Migration 版本紀錄
+INSERT INTO `schema_migrations` (`version`, `description`) VALUES
+('v2.5_base', 'Initial Source Town V2.5 schema and 24 offline scripts'),
+('v2.6_p0_p1', 'V2.6 8-level expansion, assignments, achievements, save slots and unlocks'),
+('v3.0_phase1_ai_infrastructure', 'V3.0 Phase 1 AI usage and append-only audit log tables'),
+('v3.0_phase1_stabilization', 'V3.0 Phase 1 stabilization: schema_migrations and ai_reservations');

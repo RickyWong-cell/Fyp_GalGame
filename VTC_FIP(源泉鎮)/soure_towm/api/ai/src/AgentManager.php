@@ -1,14 +1,22 @@
 <?php
-// 《源泉鎮 Source Town》V3.0 Phase 1 - Agent 註冊與執行管理
+// 《源泉鎮 Source Town》V3.0 Phase 2 - Agent 註冊與執行管理
 declare(strict_types=1);
 
 namespace SourceTown\AI;
 
 use SourceTown\AI\Agent\AgentInterface;
+use SourceTown\AI\Agent\CharacterAgent;
 use SourceTown\AI\Agent\SystemAgent;
 
 final class AgentManager
 {
+    public const CHARACTER_AGENT_IDS = [
+        'character_admin',
+        'character_farm',
+        'character_market',
+        'character_industrial',
+    ];
+
     private AIService $ai;
     private AiConfig $config;
 
@@ -21,19 +29,24 @@ final class AgentManager
         $this->config = $config;
 
         foreach ($config->agents() as $agentId => $agentConfig) {
-            if (!is_string($agentId) || !is_array($agentConfig)) {
+            if (!is_string($agentId) || !is_array($agentConfig) || $this->has($agentId)) {
                 continue;
             }
-            // Phase 1 僅註冊 System Agent；後續 Phase 可透過 register() 擴充。
             if ($agentId === 'system') {
                 $this->register(new SystemAgent($agentId, $agentConfig, $ai));
+            } elseif (in_array($agentId, self::CHARACTER_AGENT_IDS, true)) {
+                $this->register(new CharacterAgent($agentId, $agentConfig, $ai));
             }
         }
     }
 
     public function register(AgentInterface $agent): void
     {
-        $this->agents[$agent->id()] = $agent;
+        $id = $agent->id();
+        if (isset($this->agents[$id])) {
+            return;
+        }
+        $this->agents[$id] = $agent;
     }
 
     public function has(string $agentId): bool

@@ -73,6 +73,11 @@ try {
         'role' => 'admin',
         'student_uuid' => $subjectId,
         'display_name' => $teacher['display_name'],
+        'csrf_token' => computeCsrfToken([
+            'session_id' => $sessionId,
+            'subject_id' => $subjectId,
+            'csrf_secret' => $csrfSecret,
+        ]),
     ]);
 } catch (Throwable $e) {
     sendJson(['ok' => false, 'error' => 'AUTH_SERVER_ERROR'], 500);

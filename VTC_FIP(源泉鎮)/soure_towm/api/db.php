@@ -1,5 +1,5 @@
 <?php
-// 《源泉鎮 Source Town》V2.6 PDO MySQL 資料庫連線與共用輔助函式
+// 《源泉鎮 Source Town》V2.6 + V3.0 PDO MySQL 資料庫連線與共用輔助函式
 declare(strict_types=1);
 
 define('DB_HOST', '127.0.0.1');
@@ -55,6 +55,28 @@ function getActiveSession(PDO $pdo): ?array {
     $stmt->execute([$sid]);
     $row = $stmt->fetch();
     return $row ?: null;
+}
+
+function computeCsrfToken(array $session): string {
+    $sid = (string)($session['session_id'] ?? '');
+    $subject = (string)($session['subject_id'] ?? '');
+    $secret = (string)($session['csrf_secret'] ?? '');
+    if ($sid === '' || $secret === '') {
+        return '';
+    }
+    return hash_hmac('sha256', $sid . '|' . $subject, $secret);
+}
+
+function verifyCsrfToken(array $session, string $providedToken): bool {
+    $providedToken = trim($providedToken);
+    if ($providedToken === '') {
+        return false;
+    }
+    $expected = computeCsrfToken($session);
+    if ($expected === '') {
+        return false;
+    }
+    return hash_equals($expected, $providedToken);
 }
 
 function setSessionCookie(string $sessionId, int $ttlSeconds = 604800): void {

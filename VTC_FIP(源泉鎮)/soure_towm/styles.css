@@ -270,3 +270,105 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   transform: translateY(-4px) scale(1.02);
   filter: brightness(1.14);
 }
+
+
+/* =========================================================================
+ * V3.1 UI/UX 視覺排版、無障礙與聊天氣泡優化
+ * ========================================================================= */
+.custom-scrollbar::-webkit-scrollbar { width: 7px; height: 7px; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; border-radius: 9999px; }
+
+.map-landmark-text {
+  opacity: 0.62;
+}
+
+.map-node:focus-visible .map-node-inner {
+  outline: 2.5px solid #fb923c;
+  outline-offset: 4px;
+  filter: brightness(1.18);
+}
+
+/* 工作區分隔條 #wsResizer 視覺抓握與無障礙提示 */
+#wsResizer {
+  position: relative;
+  cursor: col-resize;
+  transition: background-color 0.2s ease;
+}
+#wsResizer::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
+  height: 36px;
+  border-radius: 9999px;
+  background-color: #475569;
+  transition: background-color 0.2s ease, height 0.2s ease;
+}
+#wsResizer:hover::after,
+#wsResizer:focus-visible::after {
+  background-color: #fb923c;
+  height: 56px;
+}
+
+/* 聊天泡泡微動效（尊重 reduce-motion 與 clean-display） */
+@keyframes chatBubbleSlideUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.chat-bubble-enter {
+  animation: chatBubbleSlideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+.clean-display .chat-bubble-enter,
+.reduce-motion .chat-bubble-enter {
+  animation: none !important;
+}
+
+body.keyboard-open #mobileTouchToolbar button {
+  min-height: 36px;
+}
+
+
+/* =========================================================================
+ * V3.1 細緻度打磨：卡片微互動、時段天色、閱讀質感與 Toast 進場
+ * ========================================================================= */
+#codeHighlightPre, #codeEditorInput, #wsTerminalOut {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#card_farm, #card_market, #card_admin, #card_industrial {
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.22s ease, box-shadow 0.22s ease;
+}
+#card_farm:hover, #card_market:hover, #card_admin:hover, #card_industrial:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px -10px rgba(249, 115, 22, 0.22);
+}
+
+.story-sky-morning { background: linear-gradient(180deg, #0f172a 0%, #1e3a5f 48%, #0284c7 100%); }
+.story-sky-afternoon { background: linear-gradient(180deg, #0c1424 0%, #1e293b 50%, #0369a1 100%); }
+.story-sky-dusk { background: linear-gradient(180deg, #080c18 0%, #161b33 35%, #34160b 70%, #5c200b 100%); }
+.story-sky-night { background: linear-gradient(180deg, #04070f 0%, #0f172a 55%, #1e1b4b 100%); }
+.story-sky-midnight { background: linear-gradient(180deg, #02040a 0%, #090d16 60%, #172554 100%); }
+
+@keyframes toastSlideIn {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+#toastStack > div {
+  animation: toastSlideIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+.clean-display #card_farm:hover,
+.clean-display #card_market:hover,
+.clean-display #card_admin:hover,
+.clean-display #card_industrial:hover {
+  transform: none !important;
+  box-shadow: none !important;
+}
+.reduce-motion #toastStack > div {
+  animation: none !important;
+}

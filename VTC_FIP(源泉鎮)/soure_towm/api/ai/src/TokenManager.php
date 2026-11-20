@@ -1,6 +1,9 @@
 <?php
-// 《源泉鎮 Source Town》V3.0 Phase 1 - Token 用量與配額管理
-// 設計：採「先預留、後結算」避免併發超額；所有限制由後端強制執行。
+// 《源泉鎮 Source Town》V3.0 Phase 1 Stabilization - Token 用量、併發限流與冪等結算管理
+// 設計：
+//   1. 以 ai_usage_daily + ai_reservations 採「交易鎖定預留 + 冪等結算/釋放」。
+//   2. 每分鐘限流於交易內統計 ai_reservations（含進行中 RESERVED 請求），杜絕併發繞過。
+//   3. settle() 與 release() 均依 reservation_id 冪等執行，防止重複扣款或重複退款。
 declare(strict_types=1);
 
 namespace SourceTown\AI;
@@ -23,8 +26,10 @@ final class TokenManager
     public function tableReady(): bool
     {
         try {
-            $stmt = $this->pdo->query("SHOW TABLES LIKE 'ai_usage_daily'");
-            return $stmt !== false && $stmt->fetchColumn() !== false;
+            $stmt1 = $this->pdo->query("SHOW TABLES LIKE 'ai_usage_daily'");
+            $stmt2 = $this->pdo->query("SHOW TABLES LIKE 'ai_reservations'");
+            return $stmt1 !== false && $stmt1->fetchColumn() !== false
+                && $stmt2 !== false && $stmt2->fetchColumn() !== false;
         } catch (Throwable) {
             return false;
         }
@@ -33,9 +38,9 @@ final class TokenManager
     /**
      * 預留本次請求的 Token 與次數。失敗時丟出 AiException（429/503）。
      *
-     * @return array{date:string,estimated_tokens:int,reserved_tokens:int}
+     * @return array{reservation_id:string,date:string,estimated_tokens:int,reserved_tokens:int}
      */
-    public function reserve(string $subjectId, int $estimatedInputTokens, int $maxOutputTokens): array
+    public function reserve(string $subjectId, int $estimatedInputTokens, int $maxOutputTokens, ?string $reservationId = null): array
     {
         if (!$this->tableReady()) {
             throw new AiException(
@@ -50,8 +55,10 @@ final class TokenManager
         }
 
         $estimatedInputTokens = max(0, $estimatedInputTokens);
-        $reserved = $estimatedInputTokens + max(0, $maxOutputTokens);
+        $maxOutputTokens = max(0, $maxOutputTokens);
+        $reserved = $estimatedInputTokens + $maxOutputTokens;
         $today = date('Y-m-d');
+        $resId = ($reservationId !== null && $reservationId !== '') ? substr($reservationId, 0, 32) : bin2hex(random_bytes(16));
 
         try {
             $this->pdo->beginTransaction();
@@ -101,6 +108,7 @@ final class TokenManager
                 );
             }
 
+            // 於交易鎖定內統計過去 60 秒之預留紀錄（含進行中請求），防止併發繞過限流
             $perMinute = $this->config->getInt('max_requests_per_minute');
             if ($perMinute > 0 && $this->requestCountLastMinute($subjectId) >= $perMinute) {
                 throw new AiException(
@@ -111,6 +119,13 @@ final class TokenManager
                     60
                 );
             }
+
+            $insRes = $this->pdo->prepare(
+                'INSERT INTO ai_reservations
+                 (reservation_id, subject_id, usage_date, estimated_input_tokens, max_output_tokens, reserved_tokens, status)
+                 VALUES (?, ?, ?, ?, ?, ?, \'RESERVED\')'
+            );
+            $insRes->execute([$resId, $subjectId, $today, $estimatedInputTokens, $maxOutputTokens, $reserved]);
 
             $update = $this->pdo->prepare(
                 'UPDATE ai_usage_daily
@@ -124,6 +139,7 @@ final class TokenManager
             $this->pdo->commit();
 
             return [
+                'reservation_id' => $resId,
                 'date' => $today,
                 'estimated_tokens' => $estimatedInputTokens,
                 'reserved_tokens' => $reserved,
@@ -142,24 +158,51 @@ final class TokenManager
     }
 
     /**
-     * 依 Provider 回傳的實際 usage 結算，並釋放預留額。
+     * 依 Provider 回傳的實際 usage 冪等結算，並釋放預留額。
      */
     public function settle(
         string $subjectId,
         string $usageDate,
         int $reservedTokens,
         int $promptTokens,
-        int $completionTokens
-    ): void {
+        int $completionTokens,
+        ?string $reservationId = null
+    ): bool {
         $promptTokens = max(0, $promptTokens);
         $completionTokens = max(0, $completionTokens);
         $total = $promptTokens + $completionTokens;
         $reservedTokens = max(0, $reservedTokens);
 
         try {
+            $this->pdo->beginTransaction();
+
+            if ($reservationId !== null && $reservationId !== '') {
+                $resStmt = $this->pdo->prepare(
+                    'SELECT status, reserved_tokens FROM ai_reservations WHERE reservation_id = ? FOR UPDATE'
+                );
+                $resStmt->execute([$reservationId]);
+                $resRow = $resStmt->fetch();
+                if (!$resRow || $resRow['status'] !== 'RESERVED') {
+                    // 冪等保護：已結算或已釋放則不重複處理
+                    $this->pdo->commit();
+                    return false;
+                }
+                $reservedTokens = max(0, (int)$resRow['reserved_tokens']);
+
+                $markStmt = $this->pdo->prepare(
+                    'UPDATE ai_reservations
+                     SET status = \'SETTLED\',
+                         actual_prompt_tokens = ?,
+                         actual_completion_tokens = ?,
+                         settled_at = NOW()
+                     WHERE reservation_id = ? AND status = \'RESERVED\''
+                );
+                $markStmt->execute([$promptTokens, $completionTokens, $reservationId]);
+            }
+
             $stmt = $this->pdo->prepare(
                 'UPDATE ai_usage_daily
-                 SET reserved_tokens = GREATEST(0, reserved_tokens - ?),
+                 SET reserved_tokens = GREATEST(0, CAST(reserved_tokens AS SIGNED) - ?),
                      prompt_tokens = prompt_tokens + ?,
                      completion_tokens = completion_tokens + ?,
                      total_tokens = total_tokens + ?,
@@ -167,31 +210,66 @@ final class TokenManager
                  WHERE subject_id = ? AND usage_date = ?'
             );
             $stmt->execute([$reservedTokens, $promptTokens, $completionTokens, $total, $subjectId, $usageDate]);
+
+            $this->pdo->commit();
+            return true;
         } catch (Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
             throw new AiException('AI_STORAGE_ERROR', 'AI 用量結算失敗', 503, $e->getMessage());
         }
     }
 
     /**
-     * 請求失敗時只釋放預留 Token；請求次數仍保留作為防濫用紀錄。
+     * 請求失敗時冪等釋放預留 Token；請求次數仍保留作為防濫用紀錄。
      */
-    public function release(string $subjectId, string $usageDate, int $reservedTokens): void
+    public function release(string $subjectId, string $usageDate, int $reservedTokens, ?string $reservationId = null): bool
     {
         $reservedTokens = max(0, $reservedTokens);
-        if ($reservedTokens === 0) {
-            return;
-        }
 
         try {
-            $stmt = $this->pdo->prepare(
-                'UPDATE ai_usage_daily
-                 SET reserved_tokens = GREATEST(0, reserved_tokens - ?),
-                     updated_at = NOW()
-                 WHERE subject_id = ? AND usage_date = ?'
-            );
-            $stmt->execute([$reservedTokens, $subjectId, $usageDate]);
+            $this->pdo->beginTransaction();
+
+            if ($reservationId !== null && $reservationId !== '') {
+                $resStmt = $this->pdo->prepare(
+                    'SELECT status, reserved_tokens FROM ai_reservations WHERE reservation_id = ? FOR UPDATE'
+                );
+                $resStmt->execute([$reservationId]);
+                $resRow = $resStmt->fetch();
+                if (!$resRow || $resRow['status'] !== 'RESERVED') {
+                    $this->pdo->commit();
+                    return false;
+                }
+                $reservedTokens = max(0, (int)$resRow['reserved_tokens']);
+
+                $markStmt = $this->pdo->prepare(
+                    'UPDATE ai_reservations
+                     SET status = \'RELEASED\',
+                         settled_at = NOW()
+                     WHERE reservation_id = ? AND status = \'RESERVED\''
+                );
+                $markStmt->execute([$reservationId]);
+            }
+
+            if ($reservedTokens > 0) {
+                $stmt = $this->pdo->prepare(
+                    'UPDATE ai_usage_daily
+                     SET reserved_tokens = GREATEST(0, CAST(reserved_tokens AS SIGNED) - ?),
+                         updated_at = NOW()
+                     WHERE subject_id = ? AND usage_date = ?'
+                );
+                $stmt->execute([$reservedTokens, $subjectId, $usageDate]);
+            }
+
+            $this->pdo->commit();
+            return true;
         } catch (Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
             error_log('[SourceTown AI] release reservation failed: ' . $e->getMessage());
+            return false;
         }
     }
 
@@ -239,7 +317,7 @@ final class TokenManager
     private function requestCountLastMinute(string $subjectId): int
     {
         $stmt = $this->pdo->prepare(
-            'SELECT COUNT(*) FROM ai_request_logs
+            'SELECT COUNT(*) FROM ai_reservations
              WHERE subject_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 60 SECOND)'
         );
         $stmt->execute([$subjectId]);

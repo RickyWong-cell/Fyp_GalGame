@@ -1,12 +1,19 @@
 <?php
-// 《源泉鎮 Source Town》V3.0 Phase 1 - Agent 路由
-// 由 intent 決定 Agent 與允許角色，避免前端直接指定任意 Agent。
+// 《源泉鎮 Source Town》V3.0 Phase 2 - Agent 路由
+// 由 intent 與伺服器端白名單（sector_id -> agent_id）決定 Agent，絕不接受前端直接指定 agent_id。
 declare(strict_types=1);
 
 namespace SourceTown\AI;
 
 final class AgentRouter
 {
+    public const SECTOR_AGENT_WHITELIST = [
+        'admin' => 'character_admin',
+        'farm' => 'character_farm',
+        'market' => 'character_market',
+        'industrial' => 'character_industrial',
+    ];
+
     private AiConfig $config;
 
     public function __construct(AiConfig $config)
@@ -15,9 +22,10 @@ final class AgentRouter
     }
 
     /**
-     * @return array{intent:string,agent_id:string,role:string}
+     * @param array<string,mixed> $params
+     * @return array{intent:string,agent_id:string,role:string,sector_id:?string}
      */
-    public function route(string $intent, string $role): array
+    public function route(string $intent, string $role, array $params = []): array
     {
         $intent = trim($intent);
         $routing = $this->config->routing();
@@ -32,6 +40,27 @@ final class AgentRouter
             throw new AiException('AI_FORBIDDEN', '目前身分無權使用此 AI 功能', 403);
         }
 
+        if ($intent === 'character_chat') {
+            $sectorId = trim((string)($params['sector_id'] ?? ''));
+            if ($sectorId === '' || !isset(self::SECTOR_AGENT_WHITELIST[$sectorId])) {
+                throw new AiException('AI_SECTOR_INVALID', '未知的源泉鎮角色區域', 400);
+            }
+            $sectorMap = is_array($route['sector_agents'] ?? null)
+                ? $route['sector_agents']
+                : self::SECTOR_AGENT_WHITELIST;
+            $agentId = trim((string)($sectorMap[$sectorId] ?? self::SECTOR_AGENT_WHITELIST[$sectorId]));
+            if (!in_array($agentId, self::SECTOR_AGENT_WHITELIST, true)) {
+                throw new AiException('AI_ROUTING_INVALID', '角色路由設定無效', 503);
+            }
+
+            return [
+                'intent' => $intent,
+                'agent_id' => $agentId,
+                'role' => $role,
+                'sector_id' => $sectorId,
+            ];
+        }
+
         $agentId = trim((string)($route['agent'] ?? ''));
         if ($agentId === '') {
             throw new AiException('AI_ROUTING_INVALID', 'AI 路由設定不完整', 503);
@@ -41,6 +70,7 @@ final class AgentRouter
             'intent' => $intent,
             'agent_id' => $agentId,
             'role' => $role,
+            'sector_id' => null,
         ];
     }
 

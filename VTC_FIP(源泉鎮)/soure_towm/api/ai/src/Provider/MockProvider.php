@@ -49,8 +49,15 @@ final class MockProvider implements ProviderInterface
 
         $prefix = (string)$this->config->get('mock.reply_prefix', '（AI 模擬）');
         $snippet = mb_substr($lastUser, 0, 160, 'UTF-8');
-        $content = $prefix . '我已收到你的訊息：「' . $snippet . '」。'
-            . '目前 Phase 1 使用模擬 Provider，真正角色人格將於 Phase 2 啟用。';
+        if (!empty($options['response_format_json'])) {
+            $content = json_encode([
+                'reply' => $prefix . '我收到你說的「' . $snippet . '」囉！',
+                'emotion' => 'happy_wink',
+            ], JSON_UNESCAPED_UNICODE);
+        } else {
+            $content = $prefix . '我已收到你的訊息：「' . $snippet . '」。'
+                . '目前使用模擬 Provider 回應。';
+        }
 
         $promptTokens = TokenEstimator::estimateMessages($messages);
         $completionTokens = TokenEstimator::estimateText($content);
