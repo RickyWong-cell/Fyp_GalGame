@@ -43,13 +43,31 @@ final class OpenAiCompatibleProvider implements ProviderInterface
             'stream' => false,
         ];
 
+        $usedJsonFormat = false;
         if (!empty($options['response_format_json'])) {
             $payload['response_format'] = ['type' => 'json_object'];
+            $usedJsonFormat = true;
         }
 
         $response = $this->http->postJsonWithRetry($url, $headers, $payload);
         $status = (int)$response['status'];
         $rawBody = (string)$response['body'];
+        $jsonFallback = false;
+
+        if ($usedJsonFormat && in_array($status, [400, 422], true)) {
+            $lowerBody = strtolower($rawBody);
+            if (
+                str_contains($lowerBody, 'response_format')
+                || str_contains($lowerBody, 'json_object')
+                || str_contains($lowerBody, 'unsupported')
+            ) {
+                unset($payload['response_format']);
+                $response = $this->http->postJsonWithRetry($url, $headers, $payload);
+                $status = (int)$response['status'];
+                $rawBody = (string)$response['body'];
+                $jsonFallback = true;
+            }
+        }
 
         if ($status < 200 || $status >= 300) {
             throw $this->mapHttpError($status, $rawBody, $response['headers']);
@@ -122,6 +140,7 @@ final class OpenAiCompatibleProvider implements ProviderInterface
             'provider_request_id' => isset($response['headers']['x-request-id'])
                 ? (string)$response['headers']['x-request-id']
                 : null,
+            'json_fallback' => $jsonFallback,
             'latency_ms' => (int)$response['latency_ms'],
         ];
     }

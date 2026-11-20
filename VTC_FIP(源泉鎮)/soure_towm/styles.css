@@ -372,3 +372,24 @@ body.keyboard-open #mobileTouchToolbar button {
 .reduce-motion #toastStack > div {
   animation: none !important;
 }
+
+
+/* =========================================================================
+ * P2 無障礙焦點環與 Reduce Motion 過渡停用
+ * ========================================================================= */
+button:focus-visible,
+[role="button"]:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #f59e0b;
+  outline-offset: 2px;
+}
+
+.reduce-motion *,
+.reduce-motion *::before,
+.reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}

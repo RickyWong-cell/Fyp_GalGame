@@ -1,0 +1,58 @@
+name: Source Town CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  frontend-and-static-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Check JS syntax
+        run: node --check app.js
+      - name: Run frontend & security regression tests
+        run: node tests/run_frontend_p0_p2_tests.js
+
+  php-lint-and-unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo, pdo_mysql, mbstring, curl, json
+      - name: PHP syntax lint
+        run: find api tests -name "*.php" -print0 | xargs -0 -n1 php -l
+      - name: Run AI Phase 1 & Phase 2 tests
+        run: |
+          php tests/run_phase1_tests.php
+          php tests/run_phase2_tests.php
+
+  mysql-schema-check:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mariadb:10.4
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: yes
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Import source_town_complete.sql
+        run: mysql -h 127.0.0.1 -u root < source_town_complete.sql
+      - name: Verify tables and seed counts
+        run: |
+          mysql -h 127.0.0.1 -u root source_town -e "SHOW TABLES;"
+          mysql -h 127.0.0.1 -u root source_town -e "SELECT COUNT(*) AS levels_cnt FROM levels; SELECT COUNT(*) AS scripts_cnt FROM offline_scripts;"

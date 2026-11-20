@@ -30,6 +30,7 @@ DROP TRIGGER IF EXISTS `prevent_ai_log_update`;
 DROP TRIGGER IF EXISTS `prevent_ai_log_delete`;
 
 DROP TABLE IF EXISTS `assignment_levels`;
+DROP TABLE IF EXISTS `issue_reports`;
 DROP TABLE IF EXISTS `student_script_unlocks`;
 DROP TABLE IF EXISTS `student_save_slots`;
 DROP TABLE IF EXISTS `ai_reservations`;
@@ -404,8 +405,31 @@ END$$
 DELIMITER ;
 
 -- =====================================================================
+-- 20. 玩家問題回報表（Bug / Issue Reports）
+CREATE TABLE `issue_reports` (
+  `report_id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `student_uuid` VARCHAR(64) NOT NULL,
+  `category` ENUM('level_bug','story_bug','ui_bug','suggestion') NOT NULL DEFAULT 'level_bug',
+  `sector_id` ENUM('admin','farm','market','industrial') NULL DEFAULT NULL,
+  `level_code` VARCHAR(64) NULL DEFAULT NULL,
+  `title` VARCHAR(120) NOT NULL,
+  `description` TEXT NOT NULL,
+  `client_meta_json` LONGTEXT NULL,
+  `status` ENUM('OPEN','IN_PROGRESS','RESOLVED','WONT_FIX') NOT NULL DEFAULT 'OPEN',
+  `admin_note` VARCHAR(500) NULL DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`report_id`),
+  KEY `idx_issue_status_created` (`status`, `created_at`),
+  KEY `idx_issue_student_created` (`student_uuid`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 4. 初始 SEED DATA（依外鍵順序寫入，保留所有 V2.5 + V2.6 資料）
 -- =====================================================================
+
+-- 4.0 預設教師管理員帳號（若尚未建立）
+INSERT IGNORE INTO `teachers` (`teacher_id`, `username`, `password_hash`, `display_name`) VALUES
+(1, 'admin', '$2y$10$Hy5MbCMdX/P58FGsHW0PV.s4/Vr6nVaafAXsMC4.4sREnqZKzyePm', '源泉鎮管理員');
 
 -- 4.1 四大區域 (4 筆)
 INSERT INTO `sectors` (`sector_id`, `sector_name`, `heroine_name`, `language`, `evaluation_mode`) VALUES

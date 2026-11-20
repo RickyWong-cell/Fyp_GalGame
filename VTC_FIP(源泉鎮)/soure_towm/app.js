@@ -199,6 +199,15 @@ const defaultDb = {
   reduceMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
   lastSavedAt: null,
   fontSizeTier: 'md',
+  sfxEnabled: true,
+  editorTabSize: 4,
+  autoSaveDraft: true,
+  dialogueSpeed: 'normal',
+  volumeMaster: 100,
+  volumeBgm: 70,
+  volumeSfx: 90,
+  dialogueOpacity: 90,
+  autoPlayWaitMs: 2000,
   onboardingStep: 0,
   onboardingDismissed: false,
   savedWsMode: 'standard',
@@ -206,6 +215,7 @@ const defaultDb = {
   currentSector: 'farm',
   currentLevelId: 'farm_1',
   customLevels: [],
+  issueReports: [],
   hintDepth: 0
 };
 
@@ -254,7 +264,8 @@ function migrateState(parsed) {
     auditLogs: Array.isArray(cloned.auditLogs) ? cloned.auditLogs : [],
     offlineSyncQueue: Array.isArray(cloned.offlineSyncQueue) ? cloned.offlineSyncQueue : [],
     unlockedAchievements: isPlainObject(cloned.unlockedAchievements) ? cloned.unlockedAchievements : {},
-    customLevels: Array.isArray(cloned.customLevels) ? cloned.customLevels : []
+    customLevels: Array.isArray(cloned.customLevels) ? cloned.customLevels : [],
+    issueReports: Array.isArray(cloned.issueReports) ? cloned.issueReports : []
   };
 
   if (cloned.crtEnabled === undefined) migrated.crtEnabled = false;
@@ -266,6 +277,15 @@ function migrateState(parsed) {
   if (!['sm', 'md', 'lg'].includes(migrated.fontSizeTier)) {
     migrated.fontSizeTier = 'md';
   }
+  if (migrated.sfxEnabled === undefined) migrated.sfxEnabled = true;
+  if (migrated.autoSaveDraft === undefined) migrated.autoSaveDraft = true;
+  if (![2, 4].includes(Number(migrated.editorTabSize))) migrated.editorTabSize = 4;
+  if (!['normal', 'fast', 'instant'].includes(migrated.dialogueSpeed)) migrated.dialogueSpeed = 'normal';
+  migrated.volumeMaster = Math.max(0, Math.min(100, Number(migrated.volumeMaster ?? 100)));
+  migrated.volumeBgm = Math.max(0, Math.min(100, Number(migrated.volumeBgm ?? 70)));
+  migrated.volumeSfx = Math.max(0, Math.min(100, Number(migrated.volumeSfx ?? 90)));
+  migrated.dialogueOpacity = Math.max(50, Math.min(100, Number(migrated.dialogueOpacity ?? 90)));
+  migrated.autoPlayWaitMs = Math.max(1000, Math.min(5000, Number(migrated.autoPlayWaitMs ?? 2000)));
   if (version < 2) {
     migrated.migratedFromVersion = version;
   }
@@ -323,6 +343,15 @@ function loadState() {
       if (prefs.particlesEnabled !== undefined) db.particlesEnabled = !!prefs.particlesEnabled;
       if (prefs.reduceMotion !== undefined) db.reduceMotion = !!prefs.reduceMotion;
       if (['sm', 'md', 'lg'].includes(prefs.fontSizeTier)) db.fontSizeTier = prefs.fontSizeTier;
+      if (prefs.sfxEnabled !== undefined) db.sfxEnabled = !!prefs.sfxEnabled;
+      if (prefs.autoSaveDraft !== undefined) db.autoSaveDraft = !!prefs.autoSaveDraft;
+      if ([2, 4].includes(Number(prefs.editorTabSize))) db.editorTabSize = Number(prefs.editorTabSize);
+      if (['normal', 'fast', 'instant'].includes(prefs.dialogueSpeed)) db.dialogueSpeed = prefs.dialogueSpeed;
+      if (Number.isFinite(Number(prefs.volumeMaster))) db.volumeMaster = Number(prefs.volumeMaster);
+      if (Number.isFinite(Number(prefs.volumeBgm))) db.volumeBgm = Number(prefs.volumeBgm);
+      if (Number.isFinite(Number(prefs.volumeSfx))) db.volumeSfx = Number(prefs.volumeSfx);
+      if (Number.isFinite(Number(prefs.dialogueOpacity))) db.dialogueOpacity = Number(prefs.dialogueOpacity);
+      if (Number.isFinite(Number(prefs.autoPlayWaitMs))) db.autoPlayWaitMs = Number(prefs.autoPlayWaitMs);
       if (['standard', 'focus', 'story'].includes(prefs.savedWsMode)) {
         db.savedWsMode = prefs.savedWsMode;
         wsMode = prefs.savedWsMode;
@@ -345,6 +374,15 @@ function saveState() {
       particlesEnabled: db.particlesEnabled,
       reduceMotion: db.reduceMotion,
       fontSizeTier: db.fontSizeTier,
+      sfxEnabled: db.sfxEnabled,
+      autoSaveDraft: db.autoSaveDraft,
+      editorTabSize: db.editorTabSize,
+      dialogueSpeed: db.dialogueSpeed,
+      volumeMaster: db.volumeMaster,
+      volumeBgm: db.volumeBgm,
+      volumeSfx: db.volumeSfx,
+      dialogueOpacity: db.dialogueOpacity,
+      autoPlayWaitMs: db.autoPlayWaitMs,
       savedWsMode: db.savedWsMode,
       savedSplitPct: db.savedSplitPct,
       onboardingDismissed: db.onboardingDismissed
@@ -566,6 +604,7 @@ async function syncDraftToMySQL(levelCode, draftCode) {
 }
 
 function scheduleDraftSave(codeVal) {
+  if (db.autoSaveDraft === false) return;
   if (!db.session.studentUuid) return;
   if (!db.drafts) db.drafts = {};
   db.drafts[`${db.session.studentUuid}_${db.currentLevelId}`] = codeVal;
@@ -822,7 +861,12 @@ let bgmOn = false;
 let bgmTimer = null;
 let chordIdx = 0;
 
-function playSfx(freq = 520, type = 'sine', dur = 0.06) {
+function playSfx(freq = 520, type = 'sine', dur = 0.06, channel = 'sfx') {
+  if (channel === 'sfx' && db.sfxEnabled === false) return;
+  const master = Math.max(0, Math.min(100, Number(db.volumeMaster ?? 100))) / 100;
+  const chVol = Math.max(0, Math.min(100, Number(channel === 'bgm' ? (db.volumeBgm ?? 70) : (db.volumeSfx ?? 90)))) / 100;
+  const gainVal = 0.05 * master * chVol;
+  if (gainVal <= 0.0002) return;
   try {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === 'suspended') audioCtx.resume();
@@ -830,7 +874,7 @@ function playSfx(freq = 520, type = 'sine', dur = 0.06) {
     const g = audioCtx.createGain();
     o.type = type;
     o.frequency.setValueAtTime(freq, audioCtx.currentTime);
-    g.gain.setValueAtTime(0.03, audioCtx.currentTime);
+    g.gain.setValueAtTime(gainVal, audioCtx.currentTime);
     g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
     o.connect(g); g.connect(audioCtx.destination);
     o.start(); o.stop(audioCtx.currentTime + dur);
@@ -844,7 +888,7 @@ function toggleBgm() {
     const chords = [[261.6, 329.6, 392], [220, 261.6, 329.6], [174.6, 220, 261.6], [196, 246.9, 293.7]];
     bgmTimer = setInterval(() => {
       const c = chords[chordIdx % chords.length];
-      playSfx(c[Math.floor(Math.random() * c.length)], 'triangle', 0.45);
+      playSfx(c[Math.floor(Math.random() * c.length)], 'triangle', 0.45, 'bgm');
       chordIdx++;
     }, 480);
   } else {
@@ -3194,12 +3238,13 @@ function renderAdminLevels() {
           <div class="flex items-center gap-2">
             <span class="px-2 py-0.5 rounded-lg bg-slate-800 text-amber-300 text-xs">${SECTORS[secId].name} (${SECTORS[secId].lang})</span>
             <span class="font-bold text-white">${lvl.title}</span>
+            ${lvl.isActive === false ? '<span class="px-2 py-0.5 rounded-lg bg-slate-800 text-slate-400 text-xs">已停用</span>' : ''}
           </div>
           <div class="text-xs text-slate-400">檔案: ${lvl.file} · 隱喻: ${lvl.metaphor}</div>
         </div>
         <div class="flex items-center gap-2">
           <button data-try-lvl="${lvl.id}" data-try-sec="${secId}" class="min-h-[38px] px-3 py-1 rounded-xl bg-sky-800 hover:bg-sky-700 text-white text-xs">測試</button>
-          ${lvl.isBuiltin ? '' : `<button data-del-lvl="${lvl.id}" class="min-h-[38px] px-3 py-1 rounded-xl bg-rose-950 hover:bg-rose-800 text-rose-200 text-xs">刪除</button>`}
+          ${lvl.isBuiltin || lvl.isActive === false ? '' : `<button data-del-lvl="${lvl.id}" class="min-h-[38px] px-3 py-1 rounded-xl bg-rose-950 hover:bg-rose-800 text-rose-200 text-xs">刪除</button>`}
         </div>
       `;
       listEl.appendChild(row);
@@ -3213,13 +3258,156 @@ function renderAdminLevels() {
     loadSector(b.dataset.trySec, b.dataset.tryLvl);
     applyResponsiveLayout();
   }));
-  listEl.querySelectorAll('[data-del-lvl]').forEach(b => b.addEventListener('click', () => {
-    db.customLevels = (db.customLevels || []).filter(l => l.id !== b.dataset.delLvl);
+  listEl.querySelectorAll('[data-del-lvl]').forEach(b => b.addEventListener('click', async () => {
+    const lvlId = b.dataset.delLvl;
+    let deleteMode = 'deleted';
+    let serverMsg = '';
+
+    if (dbBackendReady) {
+      b.disabled = true;
+      try {
+        const resp = await fetch('api/admin_levels.php', {
+          method: 'POST',
+          headers: buildAuthJsonHeaders(),
+          body: JSON.stringify({ action: 'delete', level_code: lvlId })
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || !data.ok) {
+          showToast(data.msg || `刪除失敗 (${resp.status})，請確認已登入教師帳號`, 'error');
+          b.disabled = false;
+          return;
+        }
+        deleteMode = data.mode || 'deleted';
+        serverMsg = data.msg || '';
+      } catch (err) {
+        showToast('無法連線至 api/admin_levels.php，刪除未寫入資料庫', 'error');
+        b.disabled = false;
+        return;
+      }
+    }
+
+    if (deleteMode === 'archived') {
+      db.customLevels = (db.customLevels || []).map(l => l.id === lvlId ? { ...l, isActive: false } : l);
+      if (Array.isArray(dbLevelsList)) {
+        dbLevelsList = dbLevelsList.map(l => l.id === lvlId ? { ...l, isActive: false } : l);
+      }
+    } else {
+      db.customLevels = (db.customLevels || []).filter(l => l.id !== lvlId);
+      if (Array.isArray(dbLevelsList)) {
+        dbLevelsList = dbLevelsList.filter(l => l.id !== lvlId);
+      }
+    }
+
+    if (db.currentLevelId === lvlId) {
+      db.currentLevelId = `${db.currentSector}_1`;
+    }
     saveState();
     renderAdminLevels();
     refreshTitleCards();
-    showToast('已刪除自訂關卡', 'info');
+    showToast(serverMsg || '已刪除自訂關卡', 'info');
   }));
+}
+
+
+async function renderAdminIssues() {
+  const listEl = document.getElementById('adminIssuesList');
+  if (!listEl) return;
+  const statusFilter = document.getElementById('filterAdminIssueStatus')?.value || 'ALL';
+  listEl.innerHTML = '<div class="p-4 text-center text-slate-400">載入問題回報中...</div>';
+
+  let reports = [];
+  if (dbBackendReady) {
+    try {
+      const resp = await fetch(`api/issue_reports.php?status=${encodeURIComponent(statusFilter)}`);
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok && data.ok && Array.isArray(data.reports)) {
+        reports = data.reports;
+      } else {
+        listEl.innerHTML = `<div class="p-4 rounded-xl bg-rose-950/40 border border-rose-700 text-rose-200">${escapeHtml(data.msg || '無法載入問題回報（請確認教師權限）')}</div>`;
+        return;
+      }
+    } catch (_) {
+      listEl.innerHTML = '<div class="p-4 rounded-xl bg-rose-950/40 border border-rose-700 text-rose-200">無法連線至 api/issue_reports.php</div>';
+      return;
+    }
+  } else {
+    reports = (db.issueReports || []).filter(r => statusFilter === 'ALL' || r.status === statusFilter);
+  }
+
+  if (reports.length === 0) {
+    listEl.innerHTML = '<div class="p-6 rounded-2xl bg-slate-950 border border-slate-800 text-center text-slate-400">目前沒有符合條件的問題回報紀錄。</div>';
+    return;
+  }
+
+  const catLabels = {
+    level_bug: '關卡題目/判題',
+    story_bug: '劇情/好感度',
+    ui_bug: '介面顯示',
+    suggestion: '功能建議'
+  };
+  const statusStyles = {
+    OPEN: 'bg-rose-950 text-rose-300 border-rose-700',
+    IN_PROGRESS: 'bg-amber-950 text-amber-300 border-amber-700',
+    RESOLVED: 'bg-emerald-950 text-emerald-300 border-emerald-700',
+    WONT_FIX: 'bg-slate-800 text-slate-300 border-slate-600'
+  };
+
+  listEl.innerHTML = '';
+  reports.forEach(r => {
+    const card = document.createElement('div');
+    card.className = 'p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2';
+    const badgeCls = statusStyles[r.status] || statusStyles.OPEN;
+    const loc = [r.sector_id, r.level_code].filter(Boolean).join(' / ') || '未指定';
+    card.innerHTML = `
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="px-2 py-0.5 rounded-lg border text-[11px] font-bold ${badgeCls}">${escapeHtml(r.status)}</span>
+          <span class="px-2 py-0.5 rounded-lg bg-slate-800 text-sky-300 text-[11px]">${escapeHtml(catLabels[r.category] || r.category)}</span>
+          <span class="font-bold text-white">${escapeHtml(r.title)}</span>
+        </div>
+        <span class="text-[11px] text-slate-400">${escapeHtml(r.student_uuid || 'guest')} · ${escapeHtml(r.created_at || '')}</span>
+      </div>
+      <div class="text-xs text-slate-300 whitespace-pre-wrap leading-relaxed">${escapeHtml(r.description)}</div>
+      <div class="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-800/80 text-[11px]">
+        <span class="text-slate-400">位置：${escapeHtml(loc)}</span>
+        <div class="flex flex-wrap gap-1.5">
+          <button data-issue-id="${r.report_id}" data-issue-status="IN_PROGRESS" class="px-2.5 py-1 rounded-lg bg-amber-900/60 hover:bg-amber-800 text-amber-200">處理中</button>
+          <button data-issue-id="${r.report_id}" data-issue-status="RESOLVED" class="px-2.5 py-1 rounded-lg bg-emerald-900/60 hover:bg-emerald-800 text-emerald-200">已解決</button>
+          <button data-issue-id="${r.report_id}" data-issue-status="WONT_FIX" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">暫不處理</button>
+        </div>
+      </div>
+    `;
+    listEl.appendChild(card);
+  });
+
+  listEl.querySelectorAll('[data-issue-status]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const reportId = Number(btn.dataset.issueId);
+      const nextStatus = btn.dataset.issueStatus;
+      if (dbBackendReady) {
+        try {
+          const resp = await fetch('api/issue_reports.php', {
+            method: 'POST',
+            headers: buildAuthJsonHeaders(),
+            body: JSON.stringify({ action: 'update_status', report_id: reportId, status: nextStatus })
+          });
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok || !data.ok) {
+            showToast(data.msg || '狀態更新失敗', 'error');
+            return;
+          }
+        } catch (_) {
+          showToast('連線失敗，無法更新狀態', 'error');
+          return;
+        }
+      } else {
+        db.issueReports = (db.issueReports || []).map(x => Number(x.report_id) === reportId ? { ...x, status: nextStatus } : x);
+        saveState();
+      }
+      showToast(`已將問題 #${reportId} 更新為 ${nextStatus}`, 'success');
+      renderAdminIssues();
+    });
+  });
 }
 
 function renderAdminScripts() {
@@ -3340,6 +3528,33 @@ window.addEventListener('DOMContentLoaded', () => {
     setBtn('btnSettingCrt', db.crtEnabled && !clean);
     setBtn('btnSettingParticles', db.particlesEnabled && !clean);
     setBtn('btnSettingMotion', db.reduceMotion);
+    setBtn('btnSettingSfx', db.sfxEnabled !== false);
+    setBtn('btnSettingAutoSave', db.autoSaveDraft !== false);
+
+    const tabBtn = document.getElementById('btnSettingTabSize');
+    if (tabBtn) tabBtn.textContent = `${Number(db.editorTabSize) === 2 ? 2 : 4} 空白`;
+
+    const speedMap = { normal: '標準', fast: '快速', instant: '立即' };
+    const speedBtn = document.getElementById('btnSettingDialogueSpeed');
+    if (speedBtn) speedBtn.textContent = speedMap[db.dialogueSpeed || 'normal'] || '標準';
+
+    const fsBtn = document.getElementById('btnSettingFullscreen');
+    if (fsBtn) fsBtn.textContent = document.fullscreenElement ? '全螢幕中' : '視窗模式';
+
+    const bindRangeSync = (id, valId, val, suffix) => {
+      const rEl = document.getElementById(id);
+      const vEl = document.getElementById(valId);
+      if (rEl) rEl.value = String(val);
+      if (vEl) vEl.textContent = suffix === 'sec' ? `${(val / 1000).toFixed(1)} 秒` : `${val}%`;
+    };
+    bindRangeSync('rangeSettingMasterVol', 'valSettingMasterVol', db.volumeMaster ?? 100, '%');
+    bindRangeSync('rangeSettingBgmVol', 'valSettingBgmVol', db.volumeBgm ?? 70, '%');
+    bindRangeSync('rangeSettingSfxVol', 'valSettingSfxVol', db.volumeSfx ?? 90, '%');
+    bindRangeSync('rangeSettingDlgOpacity', 'valSettingDlgOpacity', db.dialogueOpacity ?? 90, '%');
+    bindRangeSync('rangeSettingAutoWait', 'valSettingAutoWait', db.autoPlayWaitMs ?? 2000, 'sec');
+
+    const dlgBox = document.getElementById('storyDialogueBox') || document.getElementById('vnDialogueCard');
+    if (dlgBox) dlgBox.style.opacity = String((db.dialogueOpacity ?? 90) / 100);
 
     const fontMap = { sm: ['13px', '20px', '13px (小)'], md: ['14px', '22px', '14px (中)'], lg: ['16px', '25px', '16px (大)'] };
     const [fz, lh, label] = fontMap[db.fontSizeTier || 'md'];
@@ -3390,6 +3605,103 @@ window.addEventListener('DOMContentLoaded', () => {
     const order = ['sm', 'md', 'lg'];
     db.fontSizeTier = order[(order.indexOf(db.fontSizeTier || 'md') + 1) % 3];
     saveState(); syncSettingsUI();
+  });
+  document.getElementById('btnSettingSfx')?.addEventListener('click', () => {
+    db.sfxEnabled = db.sfxEnabled === false;
+    saveState(); syncSettingsUI();
+    if (db.sfxEnabled) playSfx(660, 'sine', 0.08);
+  });
+  document.getElementById('btnSettingTabSize')?.addEventListener('click', () => {
+    db.editorTabSize = Number(db.editorTabSize) === 2 ? 4 : 2;
+    saveState(); syncSettingsUI();
+    showToast(`Tab 縮排已切換為 ${db.editorTabSize} 個空白`, 'info');
+  });
+  document.getElementById('btnSettingAutoSave')?.addEventListener('click', () => {
+    db.autoSaveDraft = db.autoSaveDraft === false;
+    saveState(); syncSettingsUI();
+    showToast(db.autoSaveDraft ? '已開啟自動儲存草稿' : '已關閉自動儲存草稿', 'info');
+  });
+  document.getElementById('btnSettingDialogueSpeed')?.addEventListener('click', () => {
+    const order = ['normal', 'fast', 'instant'];
+    db.dialogueSpeed = order[(order.indexOf(db.dialogueSpeed || 'normal') + 1) % 3];
+    saveState(); syncSettingsUI();
+  });
+  document.getElementById('btnOpenIssueReportFromSettings')?.addEventListener('click', () => {
+    closeModal('modalSettings');
+    const badge = document.getElementById('issueReportContextBadge');
+    const inTitle = !document.getElementById('titleScreen')?.classList.contains('hidden');
+    if (badge) {
+      if (inTitle) {
+        badge.textContent = '目前位置：首頁大廳 / 系統設定';
+      } else {
+        const secName = SECTORS[db.currentSector]?.name || db.currentSector;
+        const lvlObj = getLevelById(db.currentLevelId);
+        badge.textContent = `目前位置：${secName} · ${lvlObj?.title || db.currentLevelId}`;
+      }
+    }
+    openModal('modalIssueReport');
+  });
+  document.querySelectorAll('[data-settings-tab]').forEach(tabBtn => {
+    tabBtn.addEventListener('click', () => {
+      const target = tabBtn.dataset.settingsTab;
+      document.querySelectorAll('[data-settings-tab]').forEach(b => {
+        const active = b.dataset.settingsTab === target;
+        b.className = active
+          ? 'settings-tab-btn min-h-[42px] px-3 py-2 rounded-xl bg-amber-500/20 border border-amber-500/50 text-amber-300 font-bold text-left transition'
+          : 'settings-tab-btn min-h-[42px] px-3 py-2 rounded-xl bg-slate-900/60 border border-transparent text-slate-300 hover:text-white text-left transition';
+      });
+      document.querySelectorAll('.settings-panel').forEach(p => {
+        p.classList.toggle('hidden', p.id !== `settingsPanel_${target}`);
+      });
+    });
+  });
+
+  document.getElementById('btnSettingFullscreen')?.addEventListener('click', async () => {
+    try {
+      if (!document.fullscreenElement) await document.documentElement.requestFullscreen();
+      else await document.exitFullscreen();
+    } catch (_) {
+      showToast('瀏覽器不支援或已拒絕全螢幕切換', 'warn');
+    }
+    syncSettingsUI();
+  });
+
+  const wireRange = (id, key) => {
+    document.getElementById(id)?.addEventListener('input', (e) => {
+      db[key] = Number(e.target.value);
+      saveState();
+      syncSettingsUI();
+    });
+  };
+  wireRange('rangeSettingMasterVol', 'volumeMaster');
+  wireRange('rangeSettingBgmVol', 'volumeBgm');
+  wireRange('rangeSettingSfxVol', 'volumeSfx');
+  wireRange('rangeSettingDlgOpacity', 'dialogueOpacity');
+  wireRange('rangeSettingAutoWait', 'autoPlayWaitMs');
+
+  document.getElementById('btnTestSfx')?.addEventListener('click', () => {
+    playSfx(660, 'sine', 0.12, 'sfx');
+  });
+
+  document.getElementById('btnSettingResetUi')?.addEventListener('click', () => {
+    db.cleanDisplayMode = false;
+    db.crtEnabled = false;
+    db.particlesEnabled = window.innerWidth >= 1024;
+    db.reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    db.fontSizeTier = 'md';
+    db.sfxEnabled = true;
+    db.editorTabSize = 4;
+    db.autoSaveDraft = true;
+    db.dialogueSpeed = 'normal';
+    db.volumeMaster = 100;
+    db.volumeBgm = 70;
+    db.volumeSfx = 90;
+    db.dialogueOpacity = 90;
+    db.autoPlayWaitMs = 2000;
+    initParticles();
+    saveState();
+    syncSettingsUI();
+    showToast('已恢復預設系統與顯示設定', 'success');
   });
   document.getElementById('btnFontDecrease').addEventListener('click', () => cycleFontSize(-1));
   document.getElementById('btnFontIncrease').addEventListener('click', () => cycleFontSize(1));
@@ -3763,7 +4075,8 @@ window.addEventListener('DOMContentLoaded', () => {
   editor.addEventListener('keydown', (e) => {
     if (e.key === 'Tab') {
       e.preventDefault();
-      insertAtCursor('    ', 4);
+      const tabSpaces = Number(db.editorTabSize) === 2 ? '  ' : '    ';
+      insertAtCursor(tabSpaces, tabSpaces.length);
     } else if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) {
       const s = editor.selectionStart;
       const before = editor.value.substring(0, s);
@@ -4020,7 +4333,7 @@ window.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('btnLogoutSession').addEventListener('click', async () => {
     if (dbBackendReady) {
-      try { await fetch('api/session.php', { method: 'DELETE' }); } catch (_) {}
+      try { await fetch('api/session.php', { method: 'DELETE', headers: buildAuthJsonHeaders() }); } catch (_) {}
     }
     db.session = { role: 'guest', studentUuid: null, adminFailCount: 0, lockedUntil: 0 };
     saveState(); updateAuthBadges(); closeModal('modalAuth');
@@ -4078,7 +4391,8 @@ window.addEventListener('DOMContentLoaded', () => {
       analytics: ['tabAdminAnalytics', 'panelAdminAnalytics'],
       levels: ['tabAdminLevels', 'panelAdminLevels'],
       scripts: ['tabAdminScripts', 'panelAdminScripts'],
-      stories: ['tabAdminStories', 'panelAdminStories']
+      stories: ['tabAdminStories', 'panelAdminStories'],
+      issues: ['tabAdminIssues', 'panelAdminIssues']
     };
     Object.entries(tabs).forEach(([k, [tId, pId]]) => {
       const active = k === tab;
@@ -4090,12 +4404,95 @@ window.addEventListener('DOMContentLoaded', () => {
     if (tab === 'levels') renderAdminLevels();
     if (tab === 'scripts') renderAdminScripts();
     if (tab === 'stories' && typeof renderAdminStories === 'function') renderAdminStories();
+    if (tab === 'issues') renderAdminIssues();
   }
   document.getElementById('tabAdminAnalytics').addEventListener('click', () => switchAdminTab('analytics'));
   document.getElementById('tabAdminLevels').addEventListener('click', () => switchAdminTab('levels'));
   document.getElementById('tabAdminScripts').addEventListener('click', () => switchAdminTab('scripts'));
   const tabStoriesBtn = document.getElementById('tabAdminStories');
   if (tabStoriesBtn) tabStoriesBtn.addEventListener('click', () => switchAdminTab('stories'));
+  const tabIssuesBtn = document.getElementById('tabAdminIssues');
+  if (tabIssuesBtn) tabIssuesBtn.addEventListener('click', () => switchAdminTab('issues'));
+  const filterIssuesEl = document.getElementById('filterAdminIssueStatus');
+  if (filterIssuesEl) filterIssuesEl.addEventListener('change', renderAdminIssues);
+  const refreshIssuesEl = document.getElementById('btnRefreshAdminIssues');
+  if (refreshIssuesEl) refreshIssuesEl.addEventListener('click', renderAdminIssues);
+
+  const btnOpenIssueWs = document.getElementById('btnOpenIssueReportWs');
+  if (btnOpenIssueWs) {
+    btnOpenIssueWs.addEventListener('click', () => {
+      wsMoreDrop.classList.add('hidden');
+      const badge = document.getElementById('issueReportContextBadge');
+      const secName = SECTORS[db.currentSector]?.name || db.currentSector;
+      const lvlObj = getLevelById(db.currentLevelId);
+      if (badge) badge.textContent = `目前位置：${secName} · ${lvlObj?.title || db.currentLevelId}`;
+      openModal('modalIssueReport');
+    });
+  }
+
+  const btnSubmitIssue = document.getElementById('btnSubmitIssueReport');
+  if (btnSubmitIssue) {
+    btnSubmitIssue.addEventListener('click', async () => {
+      const category = document.getElementById('issueReportCategory')?.value || 'level_bug';
+      const title = (document.getElementById('issueReportTitle')?.value || '').trim();
+      const description = (document.getElementById('issueReportDesc')?.value || '').trim();
+      if (!title || !description) {
+        showToast('請填寫問題標題與詳細描述', 'error');
+        return;
+      }
+      const payload = {
+        action: 'create',
+        category,
+        sector_id: db.currentSector || null,
+        level_code: db.currentLevelId || null,
+        title,
+        description,
+        client_meta: {
+          wsMode,
+          lang: navigator.language || '',
+          viewport: `${window.innerWidth}x${window.innerHeight}`
+        }
+      };
+
+      if (dbBackendReady) {
+        btnSubmitIssue.disabled = true;
+        try {
+          if (!db.session.studentUuid) await syncSessionWithDatabase();
+          const resp = await fetch('api/issue_reports.php', {
+            method: 'POST',
+            headers: buildAuthJsonHeaders(),
+            body: JSON.stringify(payload)
+          });
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok || !data.ok) {
+            showToast(data.msg || `問題回報送出失敗 (${resp.status})`, 'error');
+            btnSubmitIssue.disabled = false;
+            return;
+          }
+          showToast(`問題回報已送出（編號 #${data.report_id}）`, 'success');
+        } catch (_) {
+          showToast('無法連線至伺服器，已改存於本地紀錄', 'error');
+        } finally {
+          btnSubmitIssue.disabled = false;
+        }
+      } else {
+        if (!Array.isArray(db.issueReports)) db.issueReports = [];
+        db.issueReports.unshift({
+          report_id: Date.now(),
+          student_uuid: db.session.studentUuid || 'offline_guest',
+          ...payload,
+          status: 'OPEN',
+          created_at: new Date().toISOString().slice(0, 19).replace('T', ' ')
+        });
+        saveState();
+        showToast('離線模式：問題回報已暫存於本地瀏覽器', 'info');
+      }
+
+      document.getElementById('issueReportTitle').value = '';
+      document.getElementById('issueReportDesc').value = '';
+      closeModal('modalIssueReport');
+    });
+  }
   document.getElementById('btnVerify24Scripts').addEventListener('click', () => { renderAdminScripts(); showToast('已完成 24 條劇本完整性校驗', 'success'); });
   document.getElementById('btnAdminStep1').addEventListener('click', () => {
     document.getElementById('adminStep1Fields').classList.remove('hidden');
@@ -4377,24 +4774,28 @@ function renderStoryLine(instant = false) {
     storyPlayerState.typewriterTimer = null;
   }
 
+  box.style.opacity = String((db.dialogueOpacity ?? 90) / 100);
   const fullText = String(line.text || '');
-  const reduceMotion = document.body.classList.contains('reduce-motion') || instant;
+  const speedPref = db.dialogueSpeed || 'normal';
+  const reduceMotion = document.body.classList.contains('reduce-motion') || instant || speedPref === 'instant';
   if (reduceMotion) {
     box.textContent = fullText;
     storyPlayerState.isTyping = false;
   } else {
+    const stepChars = speedPref === 'fast' ? 3 : 2;
+    const stepMs = speedPref === 'fast' ? 10 : 22;
     box.textContent = '';
     storyPlayerState.isTyping = true;
     let pos = 0;
     storyPlayerState.typewriterTimer = setInterval(() => {
-      pos += 2;
+      pos += stepChars;
       box.textContent = fullText.slice(0, pos);
       if (pos >= fullText.length) {
         clearInterval(storyPlayerState.typewriterTimer);
         storyPlayerState.typewriterTimer = null;
         storyPlayerState.isTyping = false;
       }
-    }, 22);
+    }, stepMs);
   }
 
   const choicesBox = document.getElementById('storyChoicesBox');
@@ -4697,6 +5098,17 @@ function saveCmsStoryNode() {
       renderStoryLine(false);
     }
   });
+
+  const storyModalEl = document.getElementById('modalStoryPlayer');
+  if (storyModalEl) {
+    storyModalEl.addEventListener('keydown', (e) => {
+      if (e.key !== ' ' && e.key !== 'Enter') return;
+      const tag = (e.target && e.target.tagName) ? e.target.tagName.toUpperCase() : '';
+      if (tag === 'BUTTON' || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      e.preventDefault();
+      document.getElementById('btnStoryNextLine')?.click();
+    });
+  }
 
   const btnNext = document.getElementById('btnStoryNextLine');
   if (btnNext) btnNext.addEventListener('click', () => {

@@ -4,16 +4,21 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
 
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
+    sendJson(['ok' => false, 'error' => 'METHOD_NOT_ALLOWED'], 405);
+}
+
 try {
+    assertSameOriginRequest();
     $pdo = getDbConnection();
     $sess = getActiveSession($pdo);
-    if (!$sess || $sess['role'] !== 'admin') {
+    if (!$sess || ($sess['role'] ?? '') !== 'admin') {
         sendJson(['ok' => false, 'error' => 'UNAUTHORIZED'], 403);
     }
 
     $studentUuid = trim((string)($_GET['student_uuid'] ?? ''));
-    if ($studentUuid === '') {
-        sendJson(['ok' => false, 'error' => 'MISSING_STUDENT_UUID'], 400);
+    if ($studentUuid === '' || !preg_match('/^[a-zA-Z0-9_-]{3,64}$/', $studentUuid)) {
+        sendJson(['ok' => false, 'error' => 'INVALID_STUDENT_UUID'], 400);
     }
 
     $stmt = $pdo->prepare(

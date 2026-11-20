@@ -19,7 +19,7 @@ if ($pdoMysqlLoaded) {
             $tbl = $pdo->query("SHOW TABLES LIKE 'levels'")->fetchColumn();
             $schemaReady = ($tbl !== false);
             if (!$schemaReady) {
-                $diagnostic = '已連線至 MySQL，但尚未匯入 source_town_xampp_mysql.sql 資料表';
+                $diagnostic = '已連線至 MySQL，但尚未匯入 source_town_complete.sql 資料表';
             }
         }
     } catch (Throwable $e) {
@@ -30,19 +30,16 @@ if ($pdoMysqlLoaded) {
     $diagnostic = 'PHP pdo_mysql 擴充套件未啟用';
 }
 
-$sqliteExtLoaded = extension_loaded('sqlite3') && class_exists('SQLite3');
 $overallStatus = ($phpOk && $mysqlConnOk && $schemaReady) ? 'ok' : 'degraded';
 
 $data = [
     'status' => $overallStatus,
-    'project' => 'Source Town V2.6',
+    'project' => 'Source Town V3.1',
     'api_ok' => true,
     'php_ok' => $phpOk,
     'mysql_extension_loaded' => $pdoMysqlLoaded,
     'mysql_connection_ok' => $mysqlConnOk,
     'mysql_schema_ready' => $schemaReady,
-    'sqlite3_extension_loaded' => $sqliteExtLoaded,
-    'storage_mode' => ($mysqlConnOk && $schemaReady) ? 'mysql_database' : 'client_localstorage_fallback',
     'server_time' => date('c'),
     'timestamp' => time(),
 ];

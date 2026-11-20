@@ -9,8 +9,13 @@ try {
     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
     if ($method === 'DELETE') {
+        assertSameOriginRequest();
         $sess = getActiveSession($pdo);
         if ($sess) {
+            $provided = (string)($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+            if (!verifyCsrfToken($sess, $provided)) {
+                sendJson(['ok' => false, 'error' => 'CSRF_INVALID', 'msg' => 'CSRF 驗證失敗'], 403);
+            }
             $stmt = $pdo->prepare('UPDATE user_sessions SET revoked_at = NOW() WHERE session_id = ?');
             $stmt->execute([$sess['session_id']]);
         }
@@ -22,10 +27,15 @@ try {
         sendJson(['ok' => false, 'error' => 'METHOD_NOT_ALLOWED'], 405);
     }
 
+    assertSameOriginRequest();
     $body = readJsonInput();
     if (($body['action'] ?? '') === 'logout') {
         $sess = getActiveSession($pdo);
         if ($sess) {
+            $provided = (string)($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+            if (!verifyCsrfToken($sess, $provided)) {
+                sendJson(['ok' => false, 'error' => 'CSRF_INVALID', 'msg' => 'CSRF 驗證失敗'], 403);
+            }
             $stmt = $pdo->prepare('UPDATE user_sessions SET revoked_at = NOW() WHERE session_id = ?');
             $stmt->execute([$sess['session_id']]);
         }

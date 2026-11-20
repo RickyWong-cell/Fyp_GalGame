@@ -26,6 +26,40 @@ try {
         sendJson(['ok' => true]);
     }
 
+    if ($action === 'delete') {
+        $levelCode = trim((string)($body['level_code'] ?? ''));
+        if ($levelCode === '' || !preg_match('/^[a-zA-Z0-9_-]{2,64}$/', $levelCode)) {
+            sendJson(['ok' => false, 'error' => 'INVALID_LEVEL_CODE'], 400);
+        }
+
+        $findStmt = $pdo->prepare('SELECT level_id, is_builtin FROM levels WHERE level_code = ? LIMIT 1');
+        $findStmt->execute([$levelCode]);
+        $row = $findStmt->fetch();
+        if (!$row) {
+            sendJson(['ok' => true, 'mode' => 'deleted']);
+        }
+        if ((int)$row['is_builtin'] === 1) {
+            sendJson(['ok' => false, 'error' => 'BUILTIN_LEVEL_PROTECTED', 'msg' => '內建核心關卡不可刪除'], 403);
+        }
+
+        $levelId = (int)$row['level_id'];
+        $auditStmt = $pdo->prepare('SELECT 1 FROM submission_audit_logs WHERE level_id = ? LIMIT 1');
+        $auditStmt->execute([$levelId]);
+        if ($auditStmt->fetchColumn()) {
+            $updStmt = $pdo->prepare('UPDATE levels SET is_active = 0 WHERE level_id = ? AND is_builtin = 0');
+            $updStmt->execute([$levelId]);
+            sendJson([
+                'ok' => true,
+                'mode' => 'archived',
+                'msg' => '此關卡已有學生作答審計紀錄，已改為停用封存以保留紀錄'
+            ]);
+        }
+
+        $delStmt = $pdo->prepare('DELETE FROM levels WHERE level_id = ? AND is_builtin = 0');
+        $delStmt->execute([$levelId]);
+        sendJson(['ok' => true, 'mode' => 'deleted']);
+    }
+
     $levelCode = trim((string)($body['id'] ?? ('custom_' . time())));
     $sectorId = trim((string)($body['sectorId'] ?? 'farm'));
     $title = trim((string)($body['title'] ?? ''));

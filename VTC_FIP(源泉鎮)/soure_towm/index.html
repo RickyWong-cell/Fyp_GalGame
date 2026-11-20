@@ -331,6 +331,10 @@
                 <span>💾 進度儲存與讀取</span>
                 <span class="text-slate-400">SAVE</span>
               </button>
+              <button id="btnOpenIssueReportWs" role="menuitem" tabindex="-1" class="w-full min-h-[40px] px-3 py-2 rounded-xl hover:bg-slate-800 text-left text-rose-300 flex items-center justify-between transition">
+                <span>🐛 問題回報</span>
+                <span class="text-slate-400">BUG</span>
+              </button>
               <button id="btnOpenSettingsWs" role="menuitem" tabindex="-1" class="w-full min-h-[40px] px-3 py-2 rounded-xl hover:bg-slate-800 text-left text-slate-200 flex items-center justify-between transition">
                 <span>⚙ 系統與顯示設定</span>
                 <span class="text-slate-400">SET</span>
@@ -735,68 +739,183 @@
 
   <!-- ==================== ACCESSIBLE MODALS ==================== -->
 
-  <!-- Settings Modal -->
-  <div id="modalSettings" role="dialog" aria-modal="true" aria-labelledby="modalSettingsTitle" aria-describedby="modalSettingsDesc" class="fixed inset-0 z-50 hidden bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
-    <div class="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-      <div class="px-5 py-3.5 bg-slate-950 border-b border-slate-800 flex justify-between items-center">
+  <!-- Settings Modal (GalGame Categorized System Config) -->
+  <div id="modalSettings" role="dialog" aria-modal="true" aria-labelledby="modalSettingsTitle" aria-describedby="modalSettingsDesc" class="fixed inset-0 z-50 hidden bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
+    <div class="w-full max-w-3xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div class="px-5 py-3.5 bg-slate-950 border-b border-slate-800 flex justify-between items-center shrink-0">
         <div>
-          <h3 id="modalSettingsTitle" class="font-bold font-serif text-white text-base">⚙ 系統與顯示設定</h3>
-          <p id="modalSettingsDesc" class="text-xs text-slate-400 font-mono">調整視覺特效、簡潔模式、音效與編輯器字體</p>
+          <h3 id="modalSettingsTitle" class="font-bold font-serif text-white text-base">⚙ 系統與顯示設定 (SYSTEM CONFIG)</h3>
+          <p id="modalSettingsDesc" class="text-xs text-slate-400 font-mono">畫面顯示 · 文本與編輯器 · 音效音量 · 快捷鍵 · 問題回報</p>
         </div>
         <button data-close-modal="modalSettings" aria-label="關閉設定視窗" class="min-h-[40px] px-3 rounded-xl text-slate-300 hover:text-white font-mono">✕</button>
       </div>
-      <div class="p-5 overflow-y-auto custom-scrollbar space-y-3.5 text-xs">
-        <div class="flex items-center justify-between p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
-          <div>
-            <div class="font-bold text-slate-100">簡潔顯示模式 (Clean Display)</div>
-            <div class="text-slate-400 mt-0.5">一鍵減少 CRT、粒子與發光陰影干擾</div>
-          </div>
-          <button id="btnSettingClean" class="min-h-[42px] px-3.5 py-1.5 rounded-xl bg-slate-800 border border-slate-600 font-mono text-slate-200 font-bold">OFF</button>
+
+      <div class="flex flex-col md:flex-row flex-1 min-h-0">
+        <!-- Category Sidebar / Top Tabs -->
+        <div class="md:w-48 bg-slate-950/80 border-b md:border-b-0 md:border-r border-slate-800 p-2 grid grid-cols-3 md:grid-cols-1 gap-1.5 text-xs font-mono shrink-0">
+          <button type="button" data-settings-tab="system" class="settings-tab-btn min-h-[42px] px-3 py-2 rounded-xl bg-amber-500/20 border border-amber-500/50 text-amber-300 font-bold text-left transition">🖥 系統顯示</button>
+          <button type="button" data-settings-tab="text" class="settings-tab-btn min-h-[42px] px-3 py-2 rounded-xl bg-slate-900/60 border border-transparent text-slate-300 hover:text-white text-left transition">📖 文本編輯</button>
+          <button type="button" data-settings-tab="sound" class="settings-tab-btn min-h-[42px] px-3 py-2 rounded-xl bg-slate-900/60 border border-transparent text-slate-300 hover:text-white text-left transition">🔊 音效音量</button>
+          <button type="button" data-settings-tab="shortcut" class="settings-tab-btn min-h-[42px] px-3 py-2 rounded-xl bg-slate-900/60 border border-transparent text-slate-300 hover:text-white text-left transition">⌨ 快捷鍵</button>
+          <button type="button" data-settings-tab="support" class="settings-tab-btn min-h-[42px] px-3 py-2 rounded-xl bg-slate-900/60 border border-transparent text-rose-300 hover:text-rose-200 text-left transition">🐛 回報/重置</button>
         </div>
 
-        <div class="flex items-center justify-between p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
-          <div>
-            <div class="font-bold text-slate-100">背景和弦音效 (BGM)</div>
-            <div class="text-slate-400 mt-0.5">Web Audio API 即時合成背景音樂</div>
+        <!-- Tab Panels -->
+        <div class="flex-1 p-5 overflow-y-auto custom-scrollbar space-y-3.5 text-xs">
+          <!-- Panel 1: System & Display -->
+          <div id="settingsPanel_system" class="settings-panel space-y-3">
+            <div class="flex items-center justify-between p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
+              <div>
+                <div class="font-bold text-slate-100">畫面顯示模式</div>
+                <div class="text-slate-400 mt-0.5">切換視窗模式與沉浸式全螢幕</div>
+              </div>
+              <button id="btnSettingFullscreen" class="min-h-[42px] px-3.5 py-1.5 rounded-xl bg-slate-800 border border-slate-600 font-mono text-sky-300 font-bold">視窗模式</button>
+            </div>
+            <div class="flex items-center justify-between p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
+              <div>
+                <div class="font-bold text-slate-100">簡潔顯示模式 (Clean Display)</div>
+                <div class="text-slate-400 mt-0.5">一鍵減少 CRT、粒子與發光陰影干擾</div>
+              </div>
+              <button id="btnSettingClean" class="min-h-[42px] px-3.5 py-1.5 rounded-xl bg-slate-800 border border-slate-600 font-mono text-slate-200 font-bold">OFF</button>
+            </div>
+            <div class="flex items-center justify-between p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
+              <div>
+                <div class="font-bold text-slate-100">CRT 復古掃描濾鏡</div>
+                <div class="text-slate-400 mt-0.5">模擬 1978 年終端機掃描線質感</div>
+              </div>
+              <button id="btnSettingCrt" class="min-h-[42px] px-3.5 py-1.5 rounded-xl bg-slate-800 border border-slate-600 font-mono text-slate-200 font-bold">OFF</button>
+            </div>
+            <div class="flex items-center justify-between p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
+              <div>
+                <div class="font-bold text-slate-100">首頁代碼粒子特效</div>
+                <div class="text-slate-400 mt-0.5">低效能裝置建議關閉以節省資源</div>
+              </div>
+              <button id="btnSettingParticles" class="min-h-[42px] px-3.5 py-1.5 rounded-xl bg-slate-800 border border-slate-600 font-mono text-slate-200 font-bold">ON</button>
+            </div>
+            <div class="flex items-center justify-between p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
+              <div>
+                <div class="font-bold text-slate-100">減少動態效果 (Reduce Motion)</div>
+                <div class="text-slate-400 mt-0.5">尊重系統無障礙設定，停用過渡動畫</div>
+              </div>
+              <button id="btnSettingMotion" class="min-h-[42px] px-3.5 py-1.5 rounded-xl bg-slate-800 border border-slate-600 font-mono text-slate-200 font-bold">OFF</button>
+            </div>
           </div>
-          <button id="btnSettingBgm" class="min-h-[42px] px-3.5 py-1.5 rounded-xl bg-slate-800 border border-slate-600 font-mono text-slate-200 font-bold">OFF</button>
-        </div>
 
-        <div class="flex items-center justify-between p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
-          <div>
-            <div class="font-bold text-slate-100">CRT 復古掃描濾鏡</div>
-            <div class="text-slate-400 mt-0.5">模擬 1978 年終端機掃描線質感</div>
+          <!-- Panel 2: Text & Code Editor -->
+          <div id="settingsPanel_text" class="settings-panel hidden space-y-3">
+            <div class="flex items-center justify-between p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
+              <div>
+                <div class="font-bold text-slate-100">劇情對話顯示速度</div>
+                <div class="text-slate-400 mt-0.5">切換標準 / 快速 / 立即顯示</div>
+              </div>
+              <button id="btnSettingDialogueSpeed" class="min-h-[42px] px-3.5 py-1.5 rounded-xl bg-slate-800 border border-slate-600 font-mono text-amber-300 font-bold">標準</button>
+            </div>
+            <div class="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-slate-100">自動播放等待時間</span>
+                <span id="valSettingAutoWait" class="font-mono text-amber-300 font-bold">2.0 秒</span>
+              </div>
+              <input id="rangeSettingAutoWait" type="range" min="1000" max="5000" step="500" value="2000" class="w-full accent-amber-500">
+            </div>
+            <div class="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-slate-100">對話視窗背景不透明度</span>
+                <span id="valSettingDlgOpacity" class="font-mono text-sky-300 font-bold">90%</span>
+              </div>
+              <input id="rangeSettingDlgOpacity" type="range" min="50" max="100" step="5" value="90" class="w-full accent-sky-500">
+            </div>
+            <div class="flex items-center justify-between p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
+              <div>
+                <div class="font-bold text-slate-100">程式碼編輯器字體大小</div>
+                <div class="text-slate-400 mt-0.5">切換 13px / 14px / 16px</div>
+              </div>
+              <button id="btnSettingFont" class="min-h-[42px] px-3.5 py-1.5 rounded-xl bg-slate-800 border border-slate-600 font-mono text-orange-300 font-bold">14px (中)</button>
+            </div>
+            <div class="flex items-center justify-between p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
+              <div>
+                <div class="font-bold text-slate-100">編輯器 Tab 縮排空白</div>
+                <div class="text-slate-400 mt-0.5">切換按下 Tab 鍵插入 2 或 4 個空白</div>
+              </div>
+              <button id="btnSettingTabSize" class="min-h-[42px] px-3.5 py-1.5 rounded-xl bg-slate-800 border border-slate-600 font-mono text-sky-300 font-bold">4 空白</button>
+            </div>
+            <div class="flex items-center justify-between p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
+              <div>
+                <div class="font-bold text-slate-100">自動儲存程式草稿</div>
+                <div class="text-slate-400 mt-0.5">輸入程式碼時自動暫存至本地與雲端</div>
+              </div>
+              <button id="btnSettingAutoSave" class="min-h-[42px] px-3.5 py-1.5 rounded-xl bg-emerald-950 border border-emerald-500 font-mono text-emerald-300 font-bold">ON</button>
+            </div>
           </div>
-          <button id="btnSettingCrt" class="min-h-[42px] px-3.5 py-1.5 rounded-xl bg-slate-800 border border-slate-600 font-mono text-slate-200 font-bold">OFF</button>
-        </div>
 
-        <div class="flex items-center justify-between p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
-          <div>
-            <div class="font-bold text-slate-100">首頁代碼粒子特效</div>
-            <div class="text-slate-400 mt-0.5">低效能裝置建議關閉以節省資源</div>
+          <!-- Panel 3: Sound Config -->
+          <div id="settingsPanel_sound" class="settings-panel hidden space-y-3">
+            <div class="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-slate-100">整體音量 (Master Volume)</span>
+                <span id="valSettingMasterVol" class="font-mono text-emerald-300 font-bold">100%</span>
+              </div>
+              <input id="rangeSettingMasterVol" type="range" min="0" max="100" step="5" value="100" class="w-full accent-emerald-500">
+            </div>
+            <div class="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2.5">
+              <div class="flex items-center justify-between">
+                <div>
+                  <div class="font-bold text-slate-100">背景和弦音效 (BGM)</div>
+                  <div class="text-slate-400 mt-0.5">Web Audio API 即時合成背景音樂</div>
+                </div>
+                <button id="btnSettingBgm" class="min-h-[38px] px-3.5 py-1 rounded-xl bg-slate-800 border border-slate-600 font-mono text-slate-200 font-bold">OFF</button>
+              </div>
+              <div class="flex items-center gap-3">
+                <input id="rangeSettingBgmVol" type="range" min="0" max="100" step="5" value="70" class="flex-1 accent-amber-500">
+                <span id="valSettingBgmVol" class="w-10 text-right font-mono text-amber-300 font-bold">70%</span>
+              </div>
+            </div>
+            <div class="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2.5">
+              <div class="flex items-center justify-between">
+                <div>
+                  <div class="font-bold text-slate-100">互動按鈕音效 (UI SFX)</div>
+                  <div class="text-slate-400 mt-0.5">點擊、通關與警告提示音</div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button id="btnTestSfx" type="button" class="min-h-[38px] px-3 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-300 font-mono">試聽</button>
+                  <button id="btnSettingSfx" class="min-h-[38px] px-3.5 py-1 rounded-xl bg-emerald-950 border border-emerald-500 font-mono text-emerald-300 font-bold">ON</button>
+                </div>
+              </div>
+              <div class="flex items-center gap-3">
+                <input id="rangeSettingSfxVol" type="range" min="0" max="100" step="5" value="90" class="flex-1 accent-sky-500">
+                <span id="valSettingSfxVol" class="w-10 text-right font-mono text-sky-300 font-bold">90%</span>
+              </div>
+            </div>
           </div>
-          <button id="btnSettingParticles" class="min-h-[42px] px-3.5 py-1.5 rounded-xl bg-slate-800 border border-slate-600 font-mono text-slate-200 font-bold">ON</button>
-        </div>
 
-        <div class="flex items-center justify-between p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
-          <div>
-            <div class="font-bold text-slate-100">減少動態效果 (Reduce Motion)</div>
-            <div class="text-slate-400 mt-0.5">尊重系統無障礙設定，停用過渡動畫</div>
+          <!-- Panel 4: Shortcuts -->
+          <div id="settingsPanel_shortcut" class="settings-panel hidden space-y-2.5 font-mono">
+            <div class="p-3 rounded-xl bg-slate-950 border border-slate-800 flex justify-between"><span class="text-slate-300">執行程式碼與測試案例</span><kbd class="px-2 py-0.5 rounded bg-slate-800 text-amber-300">Ctrl / Cmd + Enter</kbd></div>
+            <div class="p-3 rounded-xl bg-slate-950 border border-slate-800 flex justify-between"><span class="text-slate-300">編輯器內插入縮排</span><kbd class="px-2 py-0.5 rounded bg-slate-800 text-sky-300">Tab</kbd></div>
+            <div class="p-3 rounded-xl bg-slate-950 border border-slate-800 flex justify-between"><span class="text-slate-300">關閉目前彈出視窗</span><kbd class="px-2 py-0.5 rounded bg-slate-800 text-slate-200">Esc</kbd></div>
+            <div class="p-3 rounded-xl bg-slate-950 border border-slate-800 flex justify-between"><span class="text-slate-300">劇情模式推進下一句</span><kbd class="px-2 py-0.5 rounded bg-slate-800 text-emerald-300">Space / Enter / 點擊</kbd></div>
           </div>
-          <button id="btnSettingMotion" class="min-h-[42px] px-3.5 py-1.5 rounded-xl bg-slate-800 border border-slate-600 font-mono text-slate-200 font-bold">OFF</button>
-        </div>
 
-        <div class="flex items-center justify-between p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
-          <div>
-            <div class="font-bold text-slate-100">程式碼編輯器字體大小</div>
-            <div class="text-slate-400 mt-0.5">切換 13px / 14px / 16px</div>
+          <!-- Panel 5: Support & Reset -->
+          <div id="settingsPanel_support" class="settings-panel hidden space-y-3">
+            <div class="flex items-center justify-between p-4 rounded-2xl bg-rose-950/30 border border-rose-500/40">
+              <div>
+                <div class="font-bold text-rose-200">🐛 問題回報 (Issue Report)</div>
+                <div class="text-rose-200/75 mt-0.5">遇到關卡、劇情或介面異常？立即回報給老師</div>
+              </div>
+              <button id="btnOpenIssueReportFromSettings" class="min-h-[42px] px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 font-mono text-white font-bold transition">前往回報</button>
+            </div>
+            <div class="flex items-center justify-between p-4 rounded-2xl bg-slate-950 border border-slate-800">
+              <div>
+                <div class="font-bold text-slate-100">恢復預設設定 (初期化)</div>
+                <div class="text-slate-400 mt-0.5">恢復預設視覺、音效、音量與編輯器偏好（不影響存檔與好感度）</div>
+              </div>
+              <button id="btnSettingResetUi" class="min-h-[42px] px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-900/70 border border-slate-600 font-mono text-slate-200 font-bold transition">初期化</button>
+            </div>
           </div>
-          <button id="btnSettingFont" class="min-h-[42px] px-3.5 py-1.5 rounded-xl bg-slate-800 border border-slate-600 font-mono text-orange-300 font-bold">14px (中)</button>
         </div>
       </div>
     </div>
   </div>
-
   <!-- Auth Modal -->
   <div id="modalAuth" role="dialog" aria-modal="true" aria-labelledby="modalAuthTitle" aria-describedby="modalAuthDesc" class="fixed inset-0 z-50 hidden bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
     <div class="w-full max-w-md bg-slate-900 border border-orange-500/40 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -1276,11 +1395,12 @@
         </div>
         <button data-close-modal="modalAdminDash" aria-label="關閉教師後台" class="min-h-[40px] px-3 rounded-xl text-slate-300 hover:text-white font-mono">✕</button>
       </div>
-      <div class="grid grid-cols-2 sm:grid-cols-4 bg-slate-950 border-b border-slate-800 text-xs font-mono shrink-0">
+      <div class="grid grid-cols-2 sm:grid-cols-5 bg-slate-950 border-b border-slate-800 text-xs font-mono shrink-0">
         <button id="tabAdminAnalytics" class="min-h-[44px] py-3 border-b-2 border-amber-500 text-amber-300 font-bold transition">📊 學習分析與日誌</button>
         <button id="tabAdminLevels" class="min-h-[44px] py-3 border-b-2 border-transparent text-slate-300 hover:text-white transition">🧩 關卡題庫管理</button>
         <button id="tabAdminScripts" class="min-h-[44px] py-3 border-b-2 border-transparent text-slate-300 hover:text-white transition">🎭 24 條劇本管理</button>
         <button id="tabAdminStories" class="min-h-[44px] py-3 border-b-2 border-transparent text-slate-300 hover:text-white transition">📝 Story CMS 故事編輯</button>
+        <button id="tabAdminIssues" class="min-h-[44px] py-3 border-b-2 border-transparent text-slate-300 hover:text-white transition">🐛 問題回報</button>
       </div>
       <div class="p-5 overflow-y-auto custom-scrollbar space-y-5 text-xs font-mono">
         <div id="panelAdminAnalytics" class="space-y-4">
@@ -1496,6 +1616,62 @@
               </div>
             </div>
           </div>
+        </div>
+        <div id="panelAdminIssues" class="hidden space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-2 bg-slate-950 border border-slate-800 rounded-2xl p-3">
+            <div class="flex items-center gap-2">
+              <span class="text-amber-300 font-bold">🐛 學生問題回報列表</span>
+              <select id="filterAdminIssueStatus" class="px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-slate-200 text-xs">
+                <option value="ALL">全部狀態</option>
+                <option value="OPEN">待處理 (OPEN)</option>
+                <option value="IN_PROGRESS">處理中 (IN_PROGRESS)</option>
+                <option value="RESOLVED">已解決 (RESOLVED)</option>
+                <option value="WONT_FIX">暫不處理 (WONT_FIX)</option>
+              </select>
+            </div>
+            <button id="btnRefreshAdminIssues" type="button" class="min-h-[36px] px-3 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs">🔄 重新整理</button>
+          </div>
+          <div id="adminIssuesList" class="space-y-2.5"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Issue Report Modal -->
+  <div id="modalIssueReport" role="dialog" aria-modal="true" aria-labelledby="modalIssueTitle" aria-describedby="modalIssueDesc" class="fixed inset-0 z-50 hidden bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="w-full max-w-lg bg-slate-900 border border-rose-500/40 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div class="px-5 py-3.5 bg-slate-950 border-b border-slate-800 flex justify-between items-center">
+        <div>
+          <h3 id="modalIssueTitle" class="font-bold font-serif text-white text-base">🐛 問題回報 (Issue Report)</h3>
+          <p id="modalIssueDesc" class="text-xs text-slate-400 font-mono">回報關卡題目、判題異常、劇情或介面問題</p>
+        </div>
+        <button data-close-modal="modalIssueReport" aria-label="關閉問題回報視窗" class="min-h-[40px] px-3 rounded-xl text-slate-300 hover:text-white font-mono">✕</button>
+      </div>
+      <div class="p-5 overflow-y-auto custom-scrollbar space-y-4 text-xs">
+        <div id="issueReportContextBadge" class="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-300 font-mono">
+          目前位置：未知區域
+        </div>
+        <div class="space-y-1.5">
+          <label for="issueReportCategory" class="block font-bold text-slate-200">問題類型</label>
+          <select id="issueReportCategory" class="w-full min-h-[40px] px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 outline-none focus:border-rose-500">
+            <option value="level_bug">關卡題目或判題異常</option>
+            <option value="story_bug">劇情對話或好感度異常</option>
+            <option value="ui_bug">畫面顯示或介面問題</option>
+            <option value="suggestion">功能建議或其他問題</option>
+          </select>
+        </div>
+        <div class="space-y-1.5">
+          <label for="issueReportTitle" class="block font-bold text-slate-200">問題標題（120 字內）</label>
+          <input id="issueReportTitle" type="text" maxlength="120" placeholder="例如：第 2 關正確答案被判定為 FAIL_L2" class="w-full min-h-[40px] px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 outline-none focus:border-rose-500">
+        </div>
+        <div class="space-y-1.5">
+          <label for="issueReportDesc" class="block font-bold text-slate-200">詳細描述與重現步驟（2000 字內）</label>
+          <textarea id="issueReportDesc" rows="4" maxlength="2000" placeholder="請描述發生時的輸入內容、預期結果與實際結果..." class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 outline-none focus:border-rose-500"></textarea>
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" data-close-modal="modalIssueReport" class="min-h-[40px] px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold">取消</button>
+          <button id="btnSubmitIssueReport" type="button" class="min-h-[40px] px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold">送出回報</button>
         </div>
       </div>
     </div>
