@@ -393,3 +393,66 @@ textarea:focus-visible {
   animation-iteration-count: 1 !important;
   transition-duration: 0.01ms !important;
 }
+
+
+/* =========================================================================
+ * UI/UX 改版：標準 Toggle Switch、高對比度模式與手機防水平溢出
+ * ========================================================================= */
+html, body {
+  overflow-x: hidden;
+}
+
+.st-toggle-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 52px;
+  height: 28px;
+  border-radius: 9999px;
+  background-color: #334155;
+  border: 1px solid #475569;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.st-toggle-switch::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  background-color: #e2e8f0;
+  transition: transform 0.2s ease, background-color 0.2s ease;
+}
+.st-toggle-switch[aria-checked="true"] {
+  background-color: #059669;
+  border-color: #10b981;
+}
+.st-toggle-switch[aria-checked="true"]::after {
+  transform: translateX(24px);
+  background-color: #ffffff;
+}
+
+body.high-contrast {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+}
+body.high-contrast .bg-slate-900,
+body.high-contrast .bg-slate-900\/95,
+body.high-contrast .bg-slate-950,
+body.high-contrast .bg-slate-950\/90 {
+  background-color: #05070c !important;
+  border-color: #94a3b8 !important;
+}
+body.high-contrast .text-slate-300,
+body.high-contrast .text-slate-400 {
+  color: #e2e8f0 !important;
+}
+body.high-contrast button:focus-visible,
+body.high-contrast input:focus-visible,
+body.high-contrast select:focus-visible,
+body.high-contrast textarea:focus-visible {
+  outline: 3px solid #fde047 !important;
+  outline-offset: 2px;
+}

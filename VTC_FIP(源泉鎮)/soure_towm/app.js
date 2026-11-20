@@ -197,6 +197,7 @@ const defaultDb = {
   cleanDisplayMode: false,
   particlesEnabled: !isMobileInit,
   reduceMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  highContrastMode: false,
   lastSavedAt: null,
   fontSizeTier: 'md',
   sfxEnabled: true,
@@ -278,6 +279,7 @@ function migrateState(parsed) {
     migrated.fontSizeTier = 'md';
   }
   if (migrated.sfxEnabled === undefined) migrated.sfxEnabled = true;
+  if (migrated.highContrastMode === undefined) migrated.highContrastMode = false;
   if (migrated.autoSaveDraft === undefined) migrated.autoSaveDraft = true;
   if (![2, 4].includes(Number(migrated.editorTabSize))) migrated.editorTabSize = 4;
   if (!['normal', 'fast', 'instant'].includes(migrated.dialogueSpeed)) migrated.dialogueSpeed = 'normal';
@@ -342,6 +344,7 @@ function loadState() {
       if (prefs.cleanDisplayMode !== undefined) db.cleanDisplayMode = !!prefs.cleanDisplayMode;
       if (prefs.particlesEnabled !== undefined) db.particlesEnabled = !!prefs.particlesEnabled;
       if (prefs.reduceMotion !== undefined) db.reduceMotion = !!prefs.reduceMotion;
+      if (prefs.highContrastMode !== undefined) db.highContrastMode = !!prefs.highContrastMode;
       if (['sm', 'md', 'lg'].includes(prefs.fontSizeTier)) db.fontSizeTier = prefs.fontSizeTier;
       if (prefs.sfxEnabled !== undefined) db.sfxEnabled = !!prefs.sfxEnabled;
       if (prefs.autoSaveDraft !== undefined) db.autoSaveDraft = !!prefs.autoSaveDraft;
@@ -373,6 +376,7 @@ function saveState() {
       cleanDisplayMode: db.cleanDisplayMode,
       particlesEnabled: db.particlesEnabled,
       reduceMotion: db.reduceMotion,
+      highContrastMode: db.highContrastMode,
       fontSizeTier: db.fontSizeTier,
       sfxEnabled: db.sfxEnabled,
       autoSaveDraft: db.autoSaveDraft,
@@ -1540,6 +1544,28 @@ function refreshTitleCards() {
   } else {
     recEl.textContent = '🎉 全鎮 4 區皆已修復完成，可隨時重新挑戰！';
   }
+  const startTitleEl = document.getElementById('btnStartGameTitle');
+  const startSubEl = document.getElementById('btnStartGameSub');
+  if (startTitleEl && startSubEl) {
+    const activeSec = SECTORS[db.currentSector] ? db.currentSector : (nextRecSector?.id || 'farm');
+    const activeLvl = getLevelById(db.currentLevelId || `${activeSec}_1`);
+    const isCompletedCur = !!(uuid && db.progress[`${uuid}_${activeLvl?.id}`]?.completed);
+    if (stats.cleared === 0) {
+      startTitleEl.textContent = `▶ 開始第一個任務：${SECTORS[nextRecSector?.id || 'farm'].name}`;
+      startSubEl.textContent = '進入全區地圖 · 預選生態農場後開始除錯';
+    } else if (!isCompletedCur && activeLvl) {
+      startTitleEl.textContent = `▶ 繼續目前任務：${SECTORS[activeSec].name} · ${activeLvl.title}`;
+      startSubEl.textContent = '進入全區地圖 · 預選目前任務後進入關卡';
+    } else if (nextRecSector) {
+      const nextLvls = getAllLevelsForSector(nextRecSector.id, false);
+      const nextTodo = nextLvls.find(l => !(uuid && db.progress[`${uuid}_${l.id}`]?.completed)) || nextLvls[0];
+      startTitleEl.textContent = `▶ 繼續下一個任務：${nextRecSector.name} · ${nextTodo?.title || ''}`;
+      startSubEl.textContent = '進入全區地圖 · 預選下一個待修復基建';
+    } else {
+      startTitleEl.textContent = '▶ 自由探索與重溫關卡';
+      startSubEl.textContent = '所有區域已修復完成，可隨時複習或挑戰';
+    }
+  }
 
   const achCountEl = document.getElementById('titleAchCount');
   if (achCountEl) {
@@ -1732,6 +1758,7 @@ function resetEvaluationCards() {
   document.getElementById('focusMiniErrorBadge').classList.add('hidden');
   document.getElementById('errorLineHighlight').classList.add('hidden');
   document.getElementById('testEmptyStateGuide').classList.remove('hidden');
+  document.getElementById('testExpectedActualBox')?.classList.add('hidden');
 
   [1, 2, 3].forEach(n => {
     document.getElementById(`accItemL${n}`).className = 'rounded-2xl bg-slate-900/90 border border-slate-800 overflow-hidden';
@@ -1873,6 +1900,16 @@ function loadSector(sectorId, targetLevelId = null) {
   document.getElementById('wsCharName').textContent = `${sec.heroine} (${sec.lang})`;
   document.getElementById('wsSpeaker').textContent = sec.heroine;
   document.getElementById('wsFileName').textContent = chosen.file;
+  const qGoal = document.getElementById('questBriefGoal');
+  const qCrit = document.getElementById('questBriefCriteria');
+  if (qGoal) qGoal.textContent = `${chosen.title}（${chosen.metaphor || sec.metaphor}）`;
+  if (qCrit) {
+    const reqList = [];
+    if (chosen.requiredToken) reqList.push(`保留關鍵字「${chosen.requiredToken}」`);
+    if (chosen.passPattern) reqList.push(`符合邏輯「${chosen.passPattern}」`);
+    if (chosen.expectedStdout) reqList.push(`預期輸出：${chosen.expectedStdout}`);
+    qCrit.textContent = reqList.length > 0 ? reqList.join(' · ') : '通過 L1 結構、L2 邏輯與 L3 輸出檢查';
+  }
   document.getElementById('storyModeFilePreview').textContent = chosen.file;
   document.getElementById('focusMiniCharName').textContent = sec.heroine;
 
@@ -2008,6 +2045,15 @@ async function handleRunSubmission() {
     document.getElementById('testEmptyStateGuide').classList.add('hidden');
     const overallBadge = document.getElementById('evalOverallStatusBadge');
     overallBadge.textContent = isSuccess ? `✓ 通過 (${res.execStatus})` : `✕ 未通過 (${res.execStatus})`;
+    const eaBox = document.getElementById('testExpectedActualBox');
+    const expEl = document.getElementById('testExpectedVal');
+    const actEl = document.getElementById('testActualVal');
+    if (eaBox && expEl && actEl) {
+      const activeLvl = getLevelById(levelId);
+      expEl.textContent = activeLvl?.expectedStdout ? `輸出 ${activeLvl.expectedStdout}` : (activeLvl?.passPattern || '通過三層結構與邏輯檢查');
+      actEl.textContent = isSuccess ? '✓ 符合預期條件' : (res.userErrorSummary || res.execStatus);
+      eaBox.classList.remove('hidden');
+    }
     overallBadge.className = isSuccess
       ? 'text-xs font-mono px-2.5 py-1 rounded-xl bg-emerald-950 text-emerald-300 border border-emerald-500 font-bold'
       : 'text-xs font-mono px-2.5 py-1 rounded-xl bg-rose-950 text-rose-300 border border-rose-500 font-bold';
@@ -3516,13 +3562,13 @@ window.addEventListener('DOMContentLoaded', () => {
     document.body.classList.toggle('reduce-motion', !!db.reduceMotion || clean);
     document.getElementById('wsMainContainer').classList.toggle('crt-effect', !!db.crtEnabled && !clean);
 
+    document.body.classList.toggle('high-contrast', !!db.highContrastMode);
     const setBtn = (id, on) => {
       const b = document.getElementById(id);
-      b.textContent = on ? 'ON' : 'OFF';
-      b.className = on
-        ? 'min-h-[42px] px-3.5 py-1.5 rounded-xl bg-emerald-950 border border-emerald-500 font-mono text-emerald-300 font-bold'
-        : 'min-h-[42px] px-3.5 py-1.5 rounded-xl bg-slate-800 border border-slate-600 font-mono text-slate-300 font-bold';
+      if (!b) return;
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
     };
+    setBtn('btnSettingHighContrast', !!db.highContrastMode);
     setBtn('btnSettingClean', clean);
     setBtn('btnSettingBgm', bgmOn);
     setBtn('btnSettingCrt', db.crtEnabled && !clean);
@@ -3530,6 +3576,25 @@ window.addEventListener('DOMContentLoaded', () => {
     setBtn('btnSettingMotion', db.reduceMotion);
     setBtn('btnSettingSfx', db.sfxEnabled !== false);
     setBtn('btnSettingAutoSave', db.autoSaveDraft !== false);
+
+    const localStEl = document.getElementById('settingsLocalStatus');
+    const serverStEl = document.getElementById('settingsServerSyncStatus');
+    if (localStEl) {
+      localStEl.textContent = db.lastSavedAt ? `✓ 已暫存 (${formatRelativeSaveTime(db.lastSavedAt)})` : '✓ 已啟用';
+    }
+    if (serverStEl) {
+      const qLen = Array.isArray(db.offlineSyncQueue) ? db.offlineSyncQueue.length : 0;
+      if (!dbBackendReady) {
+        serverStEl.textContent = '⚠ 未連線 MySQL（僅本地暫存）';
+        serverStEl.className = 'text-amber-300 font-bold';
+      } else if (qLen > 0) {
+        serverStEl.textContent = `⏳ 同步待重試（離線佇列 ${qLen} 筆）`;
+        serverStEl.className = 'text-rose-300 font-bold';
+      } else {
+        serverStEl.textContent = '✓ 已與 MySQL 同步';
+        serverStEl.className = 'text-emerald-300 font-bold';
+      }
+    }
 
     const tabBtn = document.getElementById('btnSettingTabSize');
     if (tabBtn) tabBtn.textContent = `${Number(db.editorTabSize) === 2 ? 2 : 4} 空白`;
@@ -3557,7 +3622,7 @@ window.addEventListener('DOMContentLoaded', () => {
     if (dlgBox) dlgBox.style.opacity = String((db.dialogueOpacity ?? 90) / 100);
 
     const fontMap = { sm: ['13px', '20px', '13px (小)'], md: ['14px', '22px', '14px (中)'], lg: ['16px', '25px', '16px (大)'] };
-    const [fz, lh, label] = fontMap[db.fontSizeTier || 'md'];
+    const [fz, lh, label] = fontMap[db.fontSizeTier] || fontMap.md;
     document.documentElement.style.setProperty('--editor-font-size', fz);
     document.documentElement.style.setProperty('--editor-line-height', lh);
     document.getElementById('btnSettingFont').textContent = label;
@@ -3566,10 +3631,10 @@ window.addEventListener('DOMContentLoaded', () => {
   syncSettingsUI();
 
   // Settings Modal Triggers
-  document.getElementById('btnOpenSettingsTitle').addEventListener('click', () => { syncSettingsUI(); openModal('modalSettings'); });
-  document.getElementById('btnOpenSettingsWs').addEventListener('click', () => {
-    document.getElementById('wsMoreDropdown').classList.add('hidden');
-    syncSettingsUI();
+  document.getElementById('btnOpenSettingsTitle')?.addEventListener('click', () => { try { syncSettingsUI(); } catch (e) { console.error(e); } openModal('modalSettings'); });
+  document.getElementById('btnOpenSettingsWs')?.addEventListener('click', () => {
+    document.getElementById('wsMoreDropdown')?.classList.add('hidden');
+    try { syncSettingsUI(); } catch (e) { console.error(e); }
     openModal('modalSettings');
   });
   document.getElementById('btnSettingClean').addEventListener('click', () => {
@@ -3683,9 +3748,41 @@ window.addEventListener('DOMContentLoaded', () => {
     playSfx(660, 'sine', 0.12, 'sfx');
   });
 
+  document.getElementById('btnSettingHighContrast')?.addEventListener('click', () => {
+    db.highContrastMode = !db.highContrastMode;
+    saveState();
+    syncSettingsUI();
+    showToast(db.highContrastMode ? '已開啟高對比度顯示模式' : '已關閉高對比度顯示模式', 'info');
+  });
+
+  document.getElementById('btnToggleQuestBrief')?.addEventListener('click', () => {
+    const drawer = document.getElementById('editorQuestBriefDrawer');
+    const btn = document.getElementById('btnToggleQuestBrief');
+    const arrow = document.getElementById('questBriefArrow');
+    if (!drawer || !btn) return;
+    const willHide = !drawer.classList.contains('hidden');
+    drawer.classList.toggle('hidden', willHide);
+    btn.setAttribute('aria-expanded', willHide ? 'false' : 'true');
+    if (arrow) arrow.textContent = willHide ? '▶ 展開' : '▼ 收合';
+  });
+  document.getElementById('btnQuestBriefHint')?.addEventListener('click', () => {
+    document.getElementById('btnRequestHint')?.click();
+  });
+  document.getElementById('btnQuestBriefToTest')?.addEventListener('click', () => {
+    if (window.innerWidth < 1024) setMobileTab('test');
+    else document.getElementById('wsTestPane')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
   document.getElementById('btnSettingResetUi')?.addEventListener('click', () => {
+    document.getElementById('resetSettingsConfirmBox')?.classList.remove('hidden');
+  });
+  document.getElementById('btnCancelResetSettings')?.addEventListener('click', () => {
+    document.getElementById('resetSettingsConfirmBox')?.classList.add('hidden');
+  });
+  document.getElementById('btnConfirmResetSettings')?.addEventListener('click', () => {
     db.cleanDisplayMode = false;
     db.crtEnabled = false;
+    db.highContrastMode = false;
     db.particlesEnabled = window.innerWidth >= 1024;
     db.reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     db.fontSizeTier = 'md';
@@ -3698,6 +3795,7 @@ window.addEventListener('DOMContentLoaded', () => {
     db.volumeSfx = 90;
     db.dialogueOpacity = 90;
     db.autoPlayWaitMs = 2000;
+    document.getElementById('resetSettingsConfirmBox')?.classList.add('hidden');
     initParticles();
     saveState();
     syncSettingsUI();
@@ -3806,7 +3904,16 @@ window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnStartGame').addEventListener('click', async () => {
     if (!(await requireDatabaseReady())) return;
     ensureStudentSession();
-    selectedMapSector = db.currentSector;
+    const uuid = db.session.studentUuid;
+    let targetSec = SECTORS[db.currentSector] ? db.currentSector : 'farm';
+    const curLvl = db.currentLevelId || `${targetSec}_1`;
+    if (uuid && db.progress[`${uuid}_${curLvl}`]?.completed) {
+      const nextSec = Object.keys(SECTORS).find(s =>
+        getAllLevelsForSector(s, false).some(l => !db.progress[`${uuid}_${l.id}`]?.completed)
+      );
+      if (nextSec) targetSec = nextSec;
+    }
+    selectedMapSector = targetSec;
     renderTownMap();
     openModal('modalTownMap');
   });
